@@ -341,3 +341,4 @@ td.good, td.bad { font-weight: 600; }
   .toasts { left: 12px; right: 12px; bottom: calc(10px + env(safe-area-inset-bottom)); max-width: none; gap: 6px; }
   .toast { font-size: 13px; padding: 8px 12px; }
 }
+.rc { scroll-margin-top: 112px; }
