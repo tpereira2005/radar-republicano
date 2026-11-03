@@ -764,7 +764,7 @@
     renderDetail(true);
     if (id) {
       lastCard = id;
-      requestAnimationFrame(() => { const c = $(`.rc[data-id="${id}"]`); (c || detailEl).scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+      setTimeout(() => { const c = $(`.rc[data-id="${id}"]`); (c || detailEl).scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 30);
     } else if (prevSel) {
       const c = $(`.rc[data-id="${prevSel}"]`);
       if (c) { c.focus({ preventScroll: true }); c.scrollIntoView({ block: 'center' }); }
