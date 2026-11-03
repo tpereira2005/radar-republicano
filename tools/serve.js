@@ -3,13 +3,14 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const handler = require('../api/state.js');
+const API = { state: require('../api/state.js'), events: require('../api/events.js'), push: require('../api/push.js'), tick: require('../api/tick.js') };
 
 const root = path.join(__dirname, '..', 'public');
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
 
 http.createServer((req, res) => {
-  if (req.url.startsWith('/api/state')) return handler(req, res);
+  const api = /^\/api\/(\w+)/.exec(req.url);
+  if (api && API[api[1]]) return API[api[1]](req, res);
   let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
   if (p.endsWith('/')) p += 'index.html';
   const f = path.join(root, p);

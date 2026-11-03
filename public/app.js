@@ -10,7 +10,7 @@
   const S = {
     data: null, prev: null, at: 0, err: null,
     sel: decodeURIComponent(location.hash.slice(1)) || null,
-    sort: 'close', mapMode: 'swing',
+    sort: 'close', mapMode: 'target',
     demoT: Math.max(0, Math.min(1, Number(params.get('demo')) || 0)), playing: false,
     seen: new Set(), feed: [], topo: null, notify: false,
   };
@@ -32,6 +32,15 @@
   }
   const cls = (m, opp = 'D') => (m == null ? '' : m > 0 ? 'r' : opp === 'I' ? 'i' : 'd');
   const signed = (x) => (x == null ? '—' : (x > 0 ? '+' : x < 0 ? '−' : '') + nf1.format(Math.abs(x)));
+  // probabilidade sem falsas certezas: nunca "100%" nem "0%"
+  const pp = (p) => (p == null ? '—' : p >= 0.995 ? '>99%' : p <= 0.005 ? '<1%' : Math.round(p * 100) + '%');
+  const pcls = (p) => (p == null ? '' : p >= 0.5 ? 'r' : 'd');
+  // votos que faltam e margem de que o R precisa neles para chegar ao empate (pontos)
+  function needed(r) {
+    const left = Math.max(0, r.expected - r.total);
+    if (!r.total || left < 1) return null;
+    return { left, need: ((r.O.votes - r.R.votes) / left) * 100 };
+  }
   const STNAME = { FL: 'Florida', OH: 'Ohio', TX: 'Texas', MI: 'Michigan', NC: 'Carolina do Norte', ME: 'Maine', GA: 'Geórgia', IA: 'Iowa', AZ: 'Arizona', KS: 'Kansas', NH: 'New Hampshire' };
   const RATING = { 'solid-rep': 'R seguro', 'likely-rep': 'R provável', 'lean-rep': 'Inclina R', tossup: 'Renhida', 'lean-dem': 'Inclina D', 'likely-dem': 'D provável', 'solid-dem': 'D seguro' };
 
@@ -69,28 +78,97 @@
     const ago = Math.round((Date.now() - S.at) / 1000);
     const when = tLisS.format(new Date(S.at));
     if (S.err) el.innerHTML = `<span class="dot warn"></span><span class="txt">Sem ligação · dados das ${when}</span>`;
+    else if (S.data.errors && S.data.errors.length) el.innerHTML = `<span class="dot warn"></span><span class="txt" title="${esc(S.data.errors.join(' · '))}">Algumas fontes falharam · a mostrar os últimos dados bons</span>`;
     else el.innerHTML = `<span class="dot on"></span><span class="txt">${DEMO ? 'Ensaio' : 'Ao vivo'} · atualizado há ${ago < 60 ? ago + ' s' : Math.round(ago / 60) + ' min'}</span>`;
   }
   setInterval(() => { renderClock(); renderLive(); }, 1000);
 
+  // ---------------------------------------------------------------- veredicto
+  function probSpark(ts, W = 220, H = 44) {
+    const pts = (ts || []).map(([t, p]) => [Date.parse(t), p]).filter((x) => isFinite(x[0]) && x[1] != null);
+    if (pts.length < 2) return '';
+    const t0 = pts[0][0], t1 = pts[pts.length - 1][0] || t0 + 1;
+    const X = (t) => ((t - t0) / Math.max(1, t1 - t0)) * W, Y = (p) => H - 3 - p * (H - 6);
+    const d = pts.map(([t, p], i) => (i ? 'L' : 'M') + X(t).toFixed(1) + ' ' + Y(p).toFixed(1)).join(' ');
+    const last = pts[pts.length - 1];
+    return `<svg class="psp" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+      <line x1="0" x2="${W}" y1="${Y(0.5)}" y2="${Y(0.5)}" stroke="#6f7d8f" stroke-dasharray="3 3"/>
+      <path d="${d}" fill="none" stroke="#ef4444" stroke-width="2" vector-effect="non-scaling-stroke"/>
+      <circle cx="${X(last[0])}" cy="${Y(last[1])}" r="3" fill="#ef4444"/></svg>`;
+  }
+  function chamberVerdict(name, c, need) {
+    if (!c || !c.model || !c.model.GOP) return '';
+    const g = c.model.GOP;
+    const p = g.p;
+    const won = c.winner === 'GOP' ? 'R garantiu' : c.winner === 'DEM' ? 'D garantiu' : null;
+    const word = won || (p >= 0.85 ? 'R muito favorito' : p >= 0.6 ? 'R favorito' : p > 0.4 ? 'Moeda ao ar' : p > 0.15 ? 'D favorito' : 'D muito favorito');
+    const first = c.ts && c.ts.length ? c.ts[0][1] : null;
+    const delta = first != null && c.ts.length > 1 ? Math.round((p - first) * 100) : null;
+    return `<div class="vd-card ${won ? (c.winner === 'GOP' ? 'won-r' : 'won-d') : ''}">
+      <div class="vd-k">${name} · probabilidade de controlo republicano</div>
+      <div class="vd-row"><span class="vd-p ${pcls(p)} num">${pp(p)}</span><span class="vd-w">${word}${delta ? `<small class="${delta > 0 ? 'vs-up' : 'vs-dn'}">${delta > 0 ? '▲' : '▼'} ${Math.abs(delta)} pts desde o início</small>` : ''}</span></div>
+      <div class="vd-meter"><span style="width:${(p * 100).toFixed(1)}%"></span><i></i></div>
+      <div class="vd-foot"><span>Lugares R previstos: <b class="num">${g.seats}</b>${g.q ? ` <span class="muted num">(${g.q[1]}–${g.q[3]})</span>` : ''} · precisa de ${need}</span>${probSpark(c.ts)}</div>
+    </div>`;
+  }
+  function renderVerdict() {
+    const d = S.data, c = d.control;
+    // caminho para os 50: lugares R garantidos + corridas por decidir ordenadas pela probabilidade do NYT
+    const sen = d.senate.filter((x) => !x.call).slice().sort((a, b) => (b.pR == null ? -1 : b.pR) - (a.pR == null ? -1 : a.pR));
+    const fav = sen.filter((x) => x.pR != null && x.pR >= 0.5).length;
+    const have = c.S ? c.S.R : 0;
+    const tracked = new Set(d.races.filter((r) => r.office.startsWith('Senado')).map((r) => r.st));
+    const chips = sen.filter((x) => x.pR != null && x.pR > 0.02 && x.pR < 0.98).map((x) => {
+      const id = d.races.find((r) => r.st === x.st && r.office.startsWith('Senado'));
+      return `<${id ? `button data-id="${id.id}"` : 'span'} class="chip" style="--p:${x.pR}" title="${esc(x.R)} contra ${esc(x.O)}">${x.st}${tracked.has(x.st) ? '★' : ''} <b class="num">${pp(x.pR)}</b>${x.eevp ? `<i class="num">${Math.round(x.eevp)}%</i>` : ''}</${id ? 'button' : 'span'}>`;
+    }).join('');
+    // próximos fechos nos 11 estados do radar
+    const now = Date.now();
+    const groups = {};
+    for (const st of Object.keys(STNAME)) {
+      const t = d.closings[st];
+      if (t && Date.parse(t) > now - 15 * 60000) (groups[t] = groups[t] || []).push(st);
+    }
+    const next = Object.entries(groups).sort((a, b) => Date.parse(a[0]) - Date.parse(b[0])).slice(0, 4)
+      .map(([t, sts]) => `<span class="cl ${Date.parse(t) <= now ? 'past' : ''}"><b class="num">${tLis.format(new Date(t))}</b> ${sts.join(' · ')}</span>`).join('');
+    const pS = c.S && c.S.model && c.S.model.GOP ? c.S.model.GOP.p : null;
+    const counting = d.races.some((r) => r.total > 0);
+    const head = !counting
+      ? `Ainda não há votos contados. Antes da contagem, o modelo do NYT dá <b class="${pcls(pS)}">${pp(pS)}</b> aos republicanos no Senado.`
+      : `${c.S && c.S.winner ? (c.S.winner === 'GOP' ? '<b class="r">Os republicanos garantiram o Senado.</b>' : '<b class="d">Os democratas garantiram o Senado.</b>') : `Senado: <b class="${pcls(pS)}">R com ${pp(pS)}</b> segundo o modelo ao vivo do NYT.`} Se cada partido ganhar onde é favorito agora, o R fica com <b class="num">${have + fav}</b> lugares (precisa de 50).`;
+    $('#verdict').innerHTML = `
+      <p class="vd-head">${head}</p>
+      <div class="vd-grid">${chamberVerdict('Senado', c.S, '50 (Vance desempata)')}${chamberVerdict('Câmara', c.H, '218')}</div>
+      <div class="vd-path"><div class="vd-k">Caminho para os 50 no Senado · R tem <b class="num">${have}</b> garantidos · corridas por decidir pela probabilidade R (NYT)</div><div class="chips">${chips || '<span class="muted">Sem corridas por decidir</span>'}</div></div>
+      ${next ? `<div class="vd-close"><span class="vd-k">Fecho da maioria das urnas · hora de Lisboa</span>${next}</div>` : ''}`;
+  }
+
   // ---------------------------------------------------------------- placar
-  function chamberCard(title, c, needR, needText, total) {
+  function chamberCard(title, c, needR, needText, total, extra) {
     if (!c) return `<div class="card"><div class="sc-title">${title}</div><p class="muted">Sem dados</p></div>`;
     const und = Math.max(0, total - c.R - c.D - c.I);
     const w = (x) => (x / total) * 100 + '%';
-    const pR = c.model && c.model.GOP ? Math.round(c.model.GOP.p * 100) : null;
     const won = c.winner === 'GOP' ? '<span class="badge callR">R controla</span>' : c.winner === 'DEM' ? '<span class="badge callD">D controla</span>' : '';
     return `<div class="card">
       <div class="sc-head"><span class="sc-title">${title}</span>${won || `<span class="sc-need">R precisa de ${needR} ${needText}</span>`}</div>
       <div class="sc-big"><span class="n r num">${c.R}<small>R</small></span><span class="n d num">${c.D}<small>D</small></span>${c.I ? `<span class="n i num">${c.I}<small>I</small></span>` : ''}<span class="vs">${und} por decidir</span></div>
       <div class="bar"><span class="bR" style="width:${w(c.R)}"></span><span style="width:${w(und)}"></span><span class="bI" style="width:${w(c.I)}"></span><span class="bD" style="width:${w(c.D)}"></span><i class="mid" style="left:${(needR / total) * 100}%"></i></div>
-      <div class="sc-foot"><span>Antes da noite: R ${c.current ? c.current.GOP : '—'} · D ${c.current ? c.current.DEM : '—'}${c.current && c.current.OTH ? ' · I ' + c.current.OTH : ''}</span>${pR != null ? `<span>Modelo NYT antes da contagem: R ${pR}%</span>` : ''}</div>
+      <div class="sc-foot"><span>Antes da noite: R ${c.current ? c.current.GOP : '—'} · D ${c.current ? c.current.DEM : '—'}${c.current && c.current.OTH ? ' · I ' + c.current.OTH : ''}</span><span>Lugares que mudam: <b class="r">R +${c.flipsR || 0}</b> · <b class="d">D +${c.flipsD || 0}</b></span></div>
+      ${extra || ''}
     </div>`;
+  }
+  function houseExtra() {
+    const h = S.data.house;
+    if (!h) return '';
+    const v = h.vote;
+    const two = v && v.R + v.D > 0 ? ((v.R - v.D) / (v.R + v.D)) * 100 : null;
+    const flips = h.flips.slice(0, 24).map((f) => `<span class="mini ${f.who === 'R' ? 'r' : 'd'}" title="${esc(f.name)}">${f.st}-${esc(f.seat)}</span>`).join('');
+    return `<div class="sc-extra">${two != null ? `<span>Voto nacional contado: <b class="${cls(two)} num">${fm(two)}</b> <span class="muted">(2024: ≈ R+3)</span></span>` : ''}${flips ? `<div class="minis">${flips}</div>` : ''}</div>`;
   }
   function govCard(list) {
     const R = list.filter((r) => r.call === 'R').length, D = list.filter((r) => r.call === 'D').length, I = list.filter((r) => r.call === 'I').length;
     const und = list.length - R - D - I;
-    const flipsR = list.filter((r) => r.call === 'R' && r.inParty === false).length;
+    const flipsR = list.filter((r) => r.call === 'R' && r.gained).length;
     const w = (x) => (x / Math.max(1, list.length)) * 100 + '%';
     return `<div class="card">
       <div class="sc-head"><span class="sc-title">Governadores</span><span class="sc-need">${list.length} corridas</span></div>
@@ -103,7 +181,7 @@
     const c = S.data.control;
     $('#score').innerHTML =
       chamberCard('Senado', c.S, 50, '(Vance desempata)', 100) +
-      chamberCard('Câmara dos Representantes', c.H, 218, 'para a maioria', 435) +
+      chamberCard('Câmara dos Representantes', c.H, 218, 'para a maioria', 435, houseExtra()) +
       govCard(S.data.governors);
   }
 
@@ -125,7 +203,19 @@
     for (const r of Object.values(byState)) if (r.watch) for (const w of r.watch.rows) if (w.m != null && w.f >= 10) { wn++; if (w.m >= w.target) up++; }
     const calls = S.data.senate.concat(S.data.governors).filter((x) => x.call);
     const cR = calls.filter((x) => x.call === 'R').length, cD = calls.filter((x) => x.call === 'D').length;
+    // condados que mudaram de lado face a Trump 2024 (com pelo menos 20% contado)
+    let fR = 0, fD = 0, above = 0, withT = 0;
+    for (const r of Object.values(byState)) for (const c of r.counties) {
+      const T = c[4];
+      if (!(T > 0) || c[1] < 20 || c[6] == null) continue;
+      const m = ((c[2] - c[3]) / T) * 100;
+      if (m > 0 && c[6] < 0) fR++; else if (m < 0 && c[6] > 0) fD++;
+      if (c[7] != null) { withT++; if (m >= c[7]) above++; }
+    }
     $('#pulse').innerHTML = `
+      <div class="kpi"><div class="k">Condados acima do alvo de empate</div><div class="v ${withT ? (above / withT >= 0.5 ? 'r' : 'd') : ''} num">${withT ? Math.round((above / withT) * 100) + '%' : '—'}</div><div class="s">${withT ? `${above} de ${withT} condados (≥20% contado) nos 11 estados` : 'Todos os condados dos 11 estados, com o alvo do NYT'}</div></div>
+      <div class="kpi"><div class="k">Condados que viraram face a 2024</div><div class="v num">${fR + fD ? `<span class="r">${fR}</span> <span class="muted">·</span> <span class="d">${fD}</span>` : '—'}</div><div class="s">${fR + fD ? 'Harris→R · Trump→D (≥20% contado)' : 'Ainda nenhum'}</div></div>`;
+    $('#pulse').innerHTML += `
       <div class="kpi"><div class="k">R à frente na estimativa</div><div class="v ${ahead >= races.length / 2 ? 'r' : 'd'} num">${ahead}<span class="muted" style="font-size:20px">/${races.length}</span></div><div class="s">corridas-chave · ${counting.length} já a contar</div></div>
       <div class="kpi"><div class="k">Face a Trump 2024</div><div class="v ${swing == null ? '' : swing >= 0 ? 'r' : 'd'} num">${swing == null ? '—' : signed(swing)}</div><div class="s">${swing == null ? 'Ainda sem votos contados' : swing >= 0 ? 'R a correr acima de Trump nos condados contados' : 'R a correr abaixo de Trump nos condados contados'}</div></div>
       <div class="kpi"><div class="k">Condados-chave acima do alvo</div><div class="v ${wn && up / wn >= 0.5 ? 'r' : wn ? 'd' : ''} num">${wn ? up + '<span class="muted" style="font-size:20px">/' + wn + '</span>' : '—'}</div><div class="s">dos condados do fio com ≥10% contado</div></div>
@@ -158,7 +248,7 @@
   function raceCard(r) {
     const tot = r.R.votes + r.O.votes;
     const sR = r.total ? (r.R.votes / r.total) * 100 : null, sO = r.total ? (r.O.votes / r.total) * 100 : null;
-    const pR = r.radar.pR != null ? Math.round(r.radar.pR * 100) : null;
+    const nd = r.call ? null : needed(r);
     const pills = r.watch ? r.watch.rows.map((w) => `<span class="${w.m == null || w.f < 10 ? '' : w.m >= w.target ? 'up' : 'dn'}" title="${esc(w.n)}"></span>`).join('') : '';
     return `<button class="rc" data-id="${r.id}" aria-current="${S.sel === r.id}">
       <div class="rc-top"><span class="rc-st">${esc(STNAME[r.st] || r.stName)}<span class="rc-off">${esc(r.office)}</span></span>${statusBadge(r)}</div>
@@ -170,7 +260,8 @@
         <span class="rc-f num">${r.total ? pct(r.eevp) + ' contado' : ''}<br><span class="muted">${r.total ? compact(tot) + ' votos' : ''}</span></span></div>
       <div class="prog"><span style="width:${Math.min(100, r.eevp)}%"></span></div>
       <div class="gauge">${gauge(r)}</div>
-      <div class="rc-foot"><span>Estimativa: <b class="${cls(r.radar.proj, r.O.party)} num">${fm(r.radar.proj, r.O.party)}</b> ± ${nf1.format(1.64 * r.radar.sd)}</span><span class="pr ${pR >= 50 ? 'r' : 'd'}">R ${pR}%</span></div>
+      <div class="rc-foot"><span>Estimativa: <b class="${cls(r.radar.proj, r.O.party)} num">${fm(r.radar.proj, r.O.party)}</b> ± ${nf1.format(1.64 * r.radar.sd)}</span><span class="pr ${pcls(r.radar.pR)}" title="Probabilidade de vitória do R segundo o radar">R ${pp(r.radar.pR)}</span></div>
+      ${r.nyt || nd ? `<div class="rc-foot">${nd ? `<span>${nd.need <= 0 ? 'R pode perder o que falta por até <b class="r num">' + nf1.format(-nd.need) + '</b> e ainda ganha' : `R precisa de ganhar o resto por <b class="${nd.need > 15 ? 'd' : 'r'} num">${nf1.format(nd.need)}</b>`}</span>` : '<span></span>'}${r.nyt ? `<span class="pr muted" title="Modelo ao vivo do NYT">NYT ${pp(r.nyt.pR)}</span>` : ''}</div>` : ''}
       ${pills ? `<div class="wpills" aria-label="Condados-chave acima (vermelho) ou abaixo (azul) do alvo">${pills}</div>` : ''}
     </button>`;
   }
@@ -191,18 +282,18 @@
     if (!S.topo) S.topo = fetch(TOPO_URL).then((r) => r.json());
     return S.topo;
   }
-  const RAMP_D = ['#1e3a8a', '#2563eb', '#60a5fa', '#bfdbfe'], RAMP_R = ['#fecaca', '#f87171', '#dc2626', '#7f1d1d'];
   function diverging(lim) {
     return d3.scaleLinear().domain([-lim, -lim / 2, -lim / 8, 0, lim / 8, lim / 2, lim]).range(['#1e3a8a', '#2563eb', '#93c5fd', '#e5e7eb', '#fca5a5', '#dc2626', '#7f1d1d']).clamp(true);
   }
   const MAPMODES = {
-    swing: { label: 'Face a Trump 2024', lim: 15, val: (c) => (c.T > 0 ? c.m - c.m24 : null), legend: ['Pior para R', 'Melhor para R'] },
-    margin: { label: 'Margem atual', lim: 40, val: (c) => (c.T > 0 ? c.m : null), legend: ['D/I à frente', 'R à frente'] },
+    target: { label: 'Vs alvo', lim: 15, val: (c) => (c.T > 0 && c.tgt != null ? c.m - c.tgt : null), legend: ['Abaixo do alvo', 'Acima do alvo (bom para R)'] },
+    swing: { label: 'Vs Trump 24', lim: 15, val: (c) => (c.T > 0 ? c.m - c.m24 : null), legend: ['Pior para R', 'Melhor para R'] },
+    margin: { label: 'Margem', lim: 40, val: (c) => (c.T > 0 ? c.m : null), legend: ['D/I à frente', 'R à frente'] },
     prog: { label: '% contado', val: (c) => c.f, legend: ['0%', '100%'] },
-    base: { label: 'Trump 2024', lim: 40, val: (c) => c.m24, legend: ['Harris', 'Trump'] },
+    base: { label: 'Trump 24', lim: 40, val: (c) => c.m24, legend: ['Harris', 'Trump'] },
   };
   function countyObjs(r) {
-    return r.counties.map(([k, f, R, O, T, E, m24]) => ({ k, f, R, O, T, E, m24, m: T > 0 ? ((R - O) / T) * 100 : null }));
+    return r.counties.map(([k, f, R, O, T, E, m24, tgt]) => ({ k, f, R, O, T, E, m24, tgt, m: T > 0 ? ((R - O) / T) * 100 : null }));
   }
 
   function renderDetail() {
@@ -213,16 +304,16 @@
     const byK = Object.fromEntries(cs.map((c) => [c.k, c]));
     const names = {};
     if (r.watch) for (const w of r.watch.rows) names[w.k] = w.n;
-    const pR = r.radar.pR != null ? Math.round(r.radar.pR * 100) : null;
     const op = r.O.party;
+    const nd = r.call ? null : needed(r);
 
     // condados do fio
     const wt = r.watch ? `<div class="box"><div class="box-h"><h3>Condados-chave do fio de @earlyvotedata</h3><span class="muted" style="font-size:12px">R–D nas eleições anteriores</span></div>
-      <div style="overflow-x:auto"><table><thead><tr><th>Condado</th>${r.watch.cols.map((c) => `<th title="${esc(c.label)}">${esc(c.label.split(' · ')[0])}</th>`).join('')}<th title="Margem R−D que o condado costuma ter com o estado empatado">Alvo</th><th>Agora</th><th>Contado</th><th>R vs alvo</th></tr></thead><tbody>
+      <div style="overflow-x:auto"><table><thead><tr><th>Condado</th>${r.watch.cols.map((c) => `<th title="${esc(c.label)}">${esc(c.label.split(' · ')[0])}</th>`).join('')}<th title="Margem R−D que o condado teria com o estado empatado, segundo as tabelas do fio">Alvo (fio)</th><th title="O mesmo alvo, calculado pelo NYT para 2026">Alvo NYT</th><th>Agora</th><th>Contado</th><th>R vs alvo</th></tr></thead><tbody>
       ${r.watch.rows.map((w) => {
         const vs = w.m != null ? w.m - w.target : null;
         return `<tr class="${w.m != null && w.f >= 10 ? 'hl' : ''}"><td>${esc(w.n)}</td>${w.v.map(([R, D]) => `<td class="hist"><span class="r">${nf1.format(R)}</span>–<span class="d">${nf1.format(D)}</span></td>`).join('')}
-          <td class="${cls(w.target)}">${fm(w.target)}</td><td class="${cls(w.m, op)}">${w.T ? fm(w.m, op) : '—'}</td><td>${w.T ? pct(w.f) : '—'}</td>
+          <td class="${cls(w.target)}">${fm(w.target)}</td><td class="${cls(w.nyt)}">${fm(w.nyt)}</td><td class="${cls(w.m, op)}">${w.T ? fm(w.m, op) : '—'}</td><td>${w.T ? pct(w.f) : '—'}</td>
           <td class="${vs == null ? '' : vs >= 0 ? 'vs-up' : 'vs-dn'}">${vs == null ? '—' : (vs >= 0 ? '▲ ' : '▼ ') + signed(vs)}</td></tr>`;
       }).join('')}</tbody></table></div>
       <p class="note">Estaduais: ${r.watch.cols.map((c) => `${esc(c.label)} <span class="r">${nf1.format(c.R)}</span>–<span class="d">${nf1.format(c.D)}</span>`).join(' · ')}. Com pouco contado, a margem de um condado ainda pode mudar muito.</p></div>` : '';
@@ -265,17 +356,21 @@
           <div><div class="k">Contado</div><div class="v num">${pct(r.eevp)}</div></div>
           <div><div class="k">Margem agora</div><div class="v ${cls(r.m, op)} num">${r.total ? fm(r.m, op) : '—'}</div></div>
           <div><div class="k">Estimativa final</div><div class="v ${cls(r.radar.proj, op)} num">${fm(r.radar.proj, op)}</div></div>
-          <div><div class="k">Probabilidade R</div><div class="v ${pR >= 50 ? 'r' : 'd'} num">${pR}%</div></div>
+          <div><div class="k">Probabilidade R</div><div class="v ${pcls(r.radar.pR)} num">${pp(r.radar.pR)}</div></div>
+          ${r.nyt ? `<div><div class="k">Modelo NYT</div><div class="v ${pcls(r.nyt.pR)} num">${pp(r.nyt.pR)}</div></div>` : ''}
+          ${nd ? `<div><div class="k">${nd.need > 0 ? 'R precisa no resto' : 'Folga do R no resto'}</div><div class="v ${nd.need > 0 ? 'd' : 'r'} num">${nd.need > 0 ? 'R+' : ''}${nf1.format(Math.abs(nd.need))}</div></div>` : ''}
           <div><div class="k">Trump 2024</div><div class="v ${cls(r.m24)} num">${fm(r.m24)}</div></div>
           <div><div class="k">Projeção AP</div><div class="v num">${r.call ? `<span class="${r.call.who === 'R' ? 'r' : r.call.who === 'D' ? 'd' : 'i'}">${esc(r.call.name.split(' ').slice(-1)[0])}</span>` : '<span class="muted">—</span>'}</div></div>
         </div>
         <button class="close-x" id="closeDetail">Fechar ✕</button>
       </div>
+      ${notes(r)}
+      ${modelBox(r)}
       <div class="dt-grid">
         <div>
           <div class="box map"><div class="box-h"><h3>Mapa por condado</h3><div class="seg" id="mapSeg">${Object.entries(MAPMODES).map(([k, m]) => `<button data-mode="${k}" aria-pressed="${S.mapMode === k}">${m.label}</button>`).join('')}</div></div>
             <div id="mapSvg" style="min-height:240px"></div><div class="legend" id="mapLegend"></div>
-            <p class="note">Contorno dourado: condados-chave do fio. Passa o cursor ou toca num condado para ver os números.</p></div>
+            <p class="note">Contorno dourado: condados-chave do fio. "Vs alvo" compara cada condado com a margem que teria se o estado ficasse empatado${r.tgtSrc === 'trump24' ? ' (aqui calculada a partir de Trump 2024)' : r.tgtSrc === 'nyt-senado' ? ' (alvo do NYT para a corrida ao Senado no mesmo estado)' : ' (alvo do NYT)'}. Passa o cursor ou toca num condado para ver os números.</p></div>
           <div class="box spark"><div class="box-h"><h3>Evolução da margem ao longo da contagem</h3></div><div id="spark"></div></div>
         </div>
         <div>
@@ -289,6 +384,31 @@
     $('#mapSeg').onclick = (e) => { const b = e.target.closest('button'); if (b) { S.mapMode = b.dataset.mode; renderDetail(); } };
     drawMap(r, byK, names);
     drawSpark(r);
+  }
+
+  // avisos de regras especiais da corrida
+  function notes(r) {
+    const n = [];
+    if (r.rcv || r.st === 'ME') n.push('O Maine usa voto por ordem de preferência: se ninguém passar dos 50%, os votos dos últimos classificados são redistribuídos. A contagem dessa fase pode levar dias.');
+    if (r.st === 'GA' || (r.threshold && r.threshold >= 50)) n.push('Na Geórgia, quem não passar dos 50% vai a uma segunda volta, em dezembro.');
+    if (r.call) n.push(`Projeção da AP${r.call.at ? ' às ' + tLis.format(new Date(r.call.at)) : ''}: ${esc(r.call.name)} (${r.call.who}).`);
+    return n.length ? `<div class="notes">${n.map((x) => `<p>${x}</p>`).join('')}</div>` : '';
+  }
+  // as duas estimativas lado a lado, no mesmo eixo
+  function modelBox(r) {
+    const W = window.innerWidth < 600 ? 340 : 600, lim = 25, X = (m) => 44 + ((Math.max(-lim, Math.min(lim, m)) + lim) / (2 * lim)) * (W - 64);
+    const p = r.radar.proj, sd = r.radar.sd;
+    const row = (y, lo, mid, hi, color, label) => `<text x="0" y="${y + 4}" font-size="11" fill="#a7b3c2" font-family="Public Sans">${label}</text>
+      <rect x="${X(lo)}" y="${y - 6}" width="${Math.max(2, X(hi) - X(lo))}" height="12" rx="3" fill="${color}" opacity=".35"/>
+      <circle cx="${X(mid)}" cy="${y}" r="6" fill="${color}" stroke="#0b0f15" stroke-width="2"/>`;
+    const q = r.nyt && r.nyt.q;
+    const ticks = (W < 600 ? [-20, 0, 20] : [-20, -10, 0, 10, 20]).map((t) => `<line x1="${X(t)}" x2="${X(t)}" y1="8" y2="${q ? 74 : 48}" stroke="${t ? '#233041' : '#a7b3c2'}" ${t ? 'stroke-dasharray="2 3"' : ''}/><text x="${X(t)}" y="${q ? 88 : 62}" font-size="10" text-anchor="middle" fill="#6f7d8f" font-family="IBM Plex Mono">${t ? (t > 0 ? 'R+' : r.O.party + '+') + Math.abs(t) : '0'}</text>`).join('');
+    return `<div class="box model"><div class="box-h"><h3>Onde vai acabar: as duas estimativas</h3><span class="muted" style="font-size:12px">ponto = mais provável · barra = intervalo de 80%${q ? ' (NYT: metade central e extremos)' : ''}</span></div>
+      <svg viewBox="0 0 ${W} ${q ? 92 : 66}" style="width:100%;height:auto;display:block">${ticks}
+        ${row(26, p - 1.28 * sd, p, p + 1.28 * sd, p >= 0 ? '#ef4444' : '#3b82f6', 'Radar')}
+        ${q ? `<line x1="${X(q[0])}" x2="${X(q[4])}" y1="56" y2="56" stroke="#a7b3c2" stroke-width="1.5"/>${row(56, q[1], q[2], q[3], q[2] >= 0 ? '#ef4444' : '#3b82f6', 'NYT')}` : ''}
+      </svg>
+      <p class="note">Radar: <b class="${cls(p, r.O.party)}">${fm(p, r.O.party)}</b>, R vence em ${pp(r.radar.pR)} dos casos.${q ? ` NYT: <b class="${cls(q[2], r.O.party)}">${fm(q[2], r.O.party)}</b>, R vence em ${pp(r.nyt.pR)}${r.nyt.status === 'inactive' ? ' (o modelo do NYT ainda está à espera de resultados)' : ''}.` : ' O NYT não publica modelo ao vivo para esta corrida.'}</p></div>`;
   }
 
   let countyNames = {};
@@ -321,7 +441,7 @@
       const c = byK[p.dataset.k];
       const n = names[p.dataset.k] || countyNames[p.dataset.k] || p.dataset.k;
       tip.innerHTML = `<b>${esc(n)}</b>${names[p.dataset.k] ? ' <span style="color:#e0b341">★ condado-chave</span>' : ''}<br>` + (c
-        ? `Contado: ${pct(c.f)}${c.T ? ` · ${compact(c.T)} votos` : ''}<br>Agora: <span class="${cls(c.m, r.O.party)}">${c.T ? fm(c.m, r.O.party) : '—'}</span><br>Trump 2024: <span class="${cls(c.m24)}">${fm(c.m24)}</span>${c.T ? `<br>Face a 2024: <b class="${c.m - c.m24 >= 0 ? 'r' : 'd'}">${signed(c.m - c.m24)}</b> para o R` : ''}`
+        ? `Contado: ${pct(c.f)}${c.T ? ` · ${compact(c.T)} votos` : ''}${c.tgt != null ? `<br>Alvo de empate: <span class="${cls(c.tgt)}">${fm(c.tgt)}</span>` : ''}<br>Agora: <span class="${cls(c.m, r.O.party)}">${c.T ? fm(c.m, r.O.party) : '—'}</span><br>Trump 2024: <span class="${cls(c.m24)}">${fm(c.m24)}</span>${c.T ? `<br>Face a 2024: <b class="${c.m - c.m24 >= 0 ? 'r' : 'd'}">${signed(c.m - c.m24)}</b> para o R` : ''}`
         : 'Sem dados');
       tip.hidden = false;
       const x = Math.min(window.innerWidth - 270, e.clientX + 14);
@@ -357,14 +477,15 @@
   // ---------------------------------------------------------------- tabelas do Senado e dos governadores
   function overviewTable(list, tracked) {
     const sorted = list.slice().sort((a, b) => (a.st > b.st ? 1 : -1));
-    return `<table><thead><tr><th>Estado</th><th>Republicano</th><th>Adversário</th><th>Contado</th><th>Margem</th><th>Classificação</th><th>AP</th></tr></thead><tbody>
+    return `<table><thead><tr><th>Estado</th><th>Republicano</th><th>Adversário</th><th>Contado</th><th>Margem</th><th>Classificação</th><th title="Probabilidade de vitória do R no modelo ao vivo do NYT">NYT R</th><th>AP</th></tr></thead><tbody>
       ${sorted.map((x) => {
         const t = tracked[x.st];
         return `<tr class="${t ? 'hl' : ''}" ${t ? `data-id="${t}" style="cursor:pointer"` : ''}><td>${x.st}${x.special ? ' <span class="muted">(esp.)</span>' : ''}${t ? ' <span style="color:var(--gold)">★</span>' : ''}</td>
           <td class="r" style="font-family:var(--sans)">${esc(x.R || '—')}</td><td class="${x.Op === 'I' ? 'i' : 'd'}" style="font-family:var(--sans)">${esc(x.O || '—')}${x.Op === 'I' ? ' (I)' : ''}</td>
           <td>${x.eevp ? pct(x.eevp) : '—'}</td><td class="${cls(x.m, x.Op)}">${x.eevp ? fm(x.m, x.Op) : '—'}</td>
           <td style="font-family:var(--sans);font-size:12px" class="muted">${RATING[x.rating] || '—'}</td>
-          <td>${x.call ? `<span class="badge call${x.call}">${x.call}${x.inParty === false ? ' ganha' : ''}</span>` : ''}</td></tr>`;
+          <td class="${pcls(x.pR)}">${x.call ? '' : pp(x.pR)}</td>
+          <td>${x.call ? `<span class="badge call${x.call}">${x.call}${x.gained ? ' ganha' : ''}</span>` : ''}</td></tr>`;
       }).join('')}</tbody></table>`;
   }
   function renderTables() {
@@ -388,10 +509,11 @@
     const label = (r) => `${STNAME[r.st] || r.stName} (${r.office})`;
     for (const r of cur.races) {
       const p = prev && prev.races.find((x) => x.id === r.id);
-      if (r.call) addEvent('call:' + r.id + ':' + r.call.who, `<b>AP projeta:</b> ${esc(r.call.name)} (${r.call.who}) vence em ${esc(label(r))}.`, 'call', r.call.who, !first);
+      const off = r.office.startsWith('Senado') ? 'S' : 'G';
+      if (r.call) addEvent('srv:call-' + off + ':' + r.st, `<b>AP projeta:</b> ${esc(r.call.name)} (${r.call.who}) vence em ${esc(label(r))}.`, 'call', r.call.who, !first);
       if (p && p.total === 0 && r.total > 0) addEvent('start:' + r.id, `Primeiros votos em ${esc(label(r))}: ${fm(r.m, r.O.party)}.`, 'info', null, false);
-      if (p && r.radar.F >= 15 && p.radar.proj != null && Math.sign(p.radar.proj) !== Math.sign(r.radar.proj) && r.radar.proj !== 0) {
-        addEvent('flip:' + r.id + ':' + Math.round(cur.demo != null ? cur.demo * 100 : Date.now() / 6e5), `A estimativa em ${esc(label(r))} passa para <b>${r.radar.proj > 0 ? 'R' : r.O.party}</b> (${fm(r.radar.proj, r.O.party)}, ${pct(r.radar.F)} contado).`, 'flip', r.radar.proj > 0 ? 'R' : 'D', true);
+      if (p && r.radar.F >= 25 && p.radar.proj != null && Math.sign(p.radar.proj) !== Math.sign(r.radar.proj) && r.radar.proj !== 0) {
+        addEvent('srv:lead-' + r.id + '-' + (r.radar.proj > 0 ? 'R' : r.O.party), `A estimativa em ${esc(label(r))} passa para <b>${r.radar.proj > 0 ? 'R' : r.O.party}</b> (${fm(r.radar.proj, r.O.party)}, ${pct(r.radar.F)} contado).`, 'flip', r.radar.proj > 0 ? 'R' : 'D', true);
       }
       if (p && r.watch && p.watch && r.office.startsWith('Senado')) {
         r.watch.rows.forEach((w, i) => {
@@ -402,13 +524,29 @@
         });
       }
     }
-    for (const x of cur.senate.concat(cur.governors)) {
-      if (!x.call || cur.races.some((r) => r.st === x.st && x.id.includes(r.office.startsWith('Senado') ? '-S-' : '-G-'))) continue;
-      const off = x.id.includes('-G-') && !x.id.includes('-S_') ? 'governador' : 'Senado';
-      addEvent('ocall:' + x.id + ':' + x.call, `<b>AP projeta:</b> ${x.call === 'R' ? esc(x.R) : esc(x.O)} (${x.call}) vence ${off} em ${x.st}.`, 'call', x.call, false);
+    // restantes corridas (as do radar já foram tratadas acima)
+    const others = cur.senate.map((x) => ['S', x]).concat(cur.governors.map((x) => ['G', x]));
+    for (const [off, x] of others) {
+      if (!x.call || cur.races.some((r) => r.st === x.st && (r.office.startsWith('Senado') ? 'S' : 'G') === off)) continue;
+      addEvent('srv:call-' + off + ':' + x.st, `<b>AP projeta:</b> ${x.call === 'R' ? esc(x.R) : esc(x.O)} (${x.call}) vence ${off === 'S' ? 'o Senado' : 'o governo'} em ${x.st}.`, 'call', x.call, false);
     }
     saveFeed();
     renderFeed();
+  }
+  async function loadServerEvents() {
+    if (DEMO) return;
+    try {
+      const { events } = await (await fetch('/api/events')).json();
+      let added = false;
+      for (const e of (events || []).slice().reverse()) {
+        const id = 'srv:' + e.tag;
+        if (S.seen.has(id) || S.feed.some((f) => f.tag === e.tag)) continue;
+        S.seen.add(id);
+        S.feed.push({ id, tag: e.tag, t: Date.parse(e.at) || Date.now(), text: `<b>${esc(e.title)}</b> · ${esc(e.body)}`, kind: e.tag.startsWith('call') || e.tag.startsWith('ctrl') ? 'call' : 'flip', party: /\(R\)|para R|Republicanos/.test(e.title) ? 'R' : /\(D\)|para D|Democratas/.test(e.title) ? 'D' : null });
+        added = true;
+      }
+      if (added) { S.feed.sort((a, b) => b.t - a.t); saveFeed(); renderFeed(); }
+    } catch (e) { /* sem histórico do servidor */ }
   }
   function renderFeed() {
     $('#feed').innerHTML = S.feed.length
@@ -483,11 +621,14 @@
       renderGrid();
     }
   });
+  let rz = null, lastW = window.innerWidth;
+  window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (Math.abs(window.innerWidth - lastW) > 40) { lastW = window.innerWidth; if (S.data) renderDetail(); } }, 250); });
   window.addEventListener('hashchange', () => { const id = decodeURIComponent(location.hash.slice(1)); if (id !== S.sel) select(id || null); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.sel) select(null); });
 
   function render() {
     renderLive();
+    renderVerdict();
     renderScore();
     renderPulse();
     renderGrid();
@@ -552,4 +693,6 @@
   renderDemoBar();
   setupNotify();
   load().then(schedule);
+  loadServerEvents();
+  setInterval(loadServerEvents, 120000);
 })();
