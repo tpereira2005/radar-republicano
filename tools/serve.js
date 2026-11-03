@@ -6,7 +6,7 @@ const path = require('node:path');
 const API = { state: require('../api/state.js'), events: require('../api/events.js'), push: require('../api/push.js'), tick: require('../api/tick.js') };
 
 const root = path.join(__dirname, '..', 'public');
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json' };
 
 http.createServer((req, res) => {
   const api = /^\/api\/(\w+)/.exec(req.url);

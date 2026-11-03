@@ -269,7 +269,7 @@
     const rs = S.data.races.slice();
     const cl = (r) => Date.parse(S.data.closings[r.st] || '2026-11-04T06:00:00Z');
     if (S.sort === 'tight') rs.sort((a, b) => Math.abs(a.radar.proj) - Math.abs(b.radar.proj));
-    else if (S.sort === 'office') rs.sort((a, b) => (a.office > b.office ? -1 : a.office < b.office ? 1 : Math.abs(a.radar.proj) - Math.abs(b.radar.proj)));
+    else if (S.sort === 'office') rs.sort((a, b) => (a.office.startsWith('Senado') ? 0 : 1) - (b.office.startsWith('Senado') ? 0 : 1) || Math.abs(a.radar.proj) - Math.abs(b.radar.proj));
     else rs.sort((a, b) => cl(a) - cl(b) || Math.abs(a.radar.proj) - Math.abs(b.radar.proj));
     return rs;
   }
@@ -296,10 +296,15 @@
     return r.counties.map(([k, f, R, O, T, E, m24, tgt]) => ({ k, f, R, O, T, E, m24, tgt, m: T > 0 ? ((R - O) / T) * 100 : null }));
   }
 
-  function renderDetail() {
+  let detailSig = '';
+  function renderDetail(force) {
     const el = $('#detail');
     const r = S.data && S.data.races.find((x) => x.id === S.sel);
-    if (!r) { el.innerHTML = ''; return; }
+    if (!r) { el.innerHTML = ''; detailSig = ''; return; }
+    // não redesenha (nem faz piscar o mapa) se nada mudou nesta corrida
+    const sig = [r.id, r.updated, r.total, r.eevp, r.call && r.call.who, r.radar.proj, r.nyt && r.nyt.pR, S.mapMode, window.innerWidth < 600].join('|');
+    if (!force && sig === detailSig && el.firstChild) return;
+    detailSig = sig;
     const cs = countyObjs(r);
     const byK = Object.fromEntries(cs.map((c) => [c.k, c]));
     const names = {};
@@ -519,8 +524,9 @@
         r.watch.rows.forEach((w, i) => {
           const pw = p.watch.rows[i];
           if (w.m == null || pw.m == null || w.f < 25) return;
+          // folga de 1 ponto para não avisar a cada oscilação em cima do alvo
           const a = w.m >= w.target, b = pw.m >= pw.target;
-          if (a !== b) addEvent(`wt:${r.id}:${w.k}:${a}`, `<b>${esc(w.n)}</b> (${STNAME[r.st]}): o R passa para ${a ? 'cima' : 'baixo'} do alvo (${fm(w.m, r.O.party)} com ${pct(w.f)} contado; alvo ${fm(w.target)}).`, 'watch', a ? 'R' : 'D', false);
+          if (a !== b && Math.abs(w.m - w.target) >= 1) addEvent(`wt:${r.id}:${w.k}:${a}`, `<b>${esc(w.n)}</b> (${STNAME[r.st]}): o R passa para ${a ? 'cima' : 'baixo'} do alvo (${fm(w.m, r.O.party)} com ${pct(w.f)} contado; alvo ${fm(w.target)}).`, 'watch', a ? 'R' : 'D', false);
         });
       }
     }
@@ -557,7 +563,9 @@
     const el = document.createElement('div');
     el.className = 'toast ' + (ev.party || '');
     el.innerHTML = ev.text;
-    $('#toasts').appendChild(el);
+    const box = $('#toasts');
+    box.appendChild(el);
+    while (box.children.length > 4) box.firstChild.remove(); // no máximo 4 avisos no ecrã
     setTimeout(() => el.remove(), 9000);
     if (S.notify && !S.push && document.hidden && 'Notification' in window && Notification.permission === 'granted') {
       try { new Notification('Radar R', { body: el.textContent, icon: 'icon.svg', tag: ev.id }); } catch (e) { /* sem notificações */ }
@@ -565,7 +573,10 @@
     if (ev.kind === 'call') beep(ev.party === 'R' ? 660 : 440);
   }
   let actx = null;
+  let lastBeep = 0;
   function beep(freq) {
+    if (Date.now() - lastBeep < 3000) return; // um som de cada vez, mesmo com muitas projeções seguidas
+    lastBeep = Date.now();
     try {
       actx = actx || new (window.AudioContext || window.webkitAudioContext)();
       const o = actx.createOscillator(), g = actx.createGain();
@@ -613,7 +624,7 @@
   }
   document.addEventListener('click', (e) => {
     const card = e.target.closest('[data-id]');
-    if (card && (card.classList.contains('rc') || card.tagName === 'TR')) select(card.dataset.id);
+    if (card && (card.classList.contains('rc') || card.classList.contains('chip') || card.tagName === 'TR')) select(card.dataset.id);
     const sb = e.target.closest('#sortSeg button');
     if (sb) {
       S.sort = sb.dataset.sort;

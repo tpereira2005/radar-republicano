@@ -14,6 +14,11 @@ module.exports = async (req, res) => {
     res.statusCode = 403; return res.end('{"error":"proibido"}');
   }
   try {
+    if (url.searchParams.get('test') === '1') {
+      // aviso de teste para todas as subscrições (confirma chaves VAPID, Blob e envio)
+      const out = await send([{ tag: 'teste', title: 'Teste do Radar R', body: 'Se estás a ver isto, as notificações push funcionam.', url: '/' }]);
+      return res.end(JSON.stringify({ ok: true, test: true, ...out }));
+    }
     const state = await collect();
     const cur = summarize(state);
     // com a função "quente", reutiliza o último estado em memória e poupa leituras ao Blob
