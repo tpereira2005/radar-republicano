@@ -406,7 +406,7 @@
         <button class="btn" id="closeDetail" type="button">Fechar ✕</button>
       </div>
       <div class="dt-head">
-        <h2 class="dt-title">${esc(r.stName)} · ${esc(r.office)}<small><span class="r">${esc(r.R.name)} (R)</span> contra <span class="${cls(-1, op)}">${esc(r.O.name)} (${op})</span>${r.rating ? ' · classificação do NYT: ' + esc(RATING[r.rating] || r.rating) : ''}</small></h2>
+        <h2 class="dt-title">${esc(STNAME[r.st] || r.stName)} · ${esc(r.office)}<small><span class="r">${esc(r.R.name)} (R)</span> contra <span class="${cls(-1, op)}">${esc(r.O.name)} (${op})</span>${r.rating ? ' · classificação do NYT: ' + esc(RATING[r.rating] || r.rating) : ''}</small></h2>
         <div class="dt-stats">
           <div><div class="k">Contado</div><div class="v num">${pct(r.eevp)}</div></div>
           <div><div class="k">Margem agora</div><div class="v ${cls(r.m, op)} num">${r.total ? fm(r.m, op) : '—'}</div></div>
@@ -437,7 +437,7 @@
     $('#shareBtn', detailEl).onclick = async (e) => {
       const url = location.origin + '/#' + r.id;
       try {
-        if (navigator.share && window.innerWidth < 800) await navigator.share({ title: 'Radar R · ' + r.stName + ' ' + r.office, url });
+        if (navigator.share && window.innerWidth < 800) await navigator.share({ title: 'Radar R · ' + (STNAME[r.st] || r.stName) + ' ' + r.office, url });
         else { await navigator.clipboard.writeText(url); e.target.textContent = '✓ Copiada'; }
       } catch (err) { /* cancelado */ }
     };
