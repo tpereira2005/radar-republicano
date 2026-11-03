@@ -342,3 +342,6 @@ td.good, td.bad { font-weight: 600; }
   .toast { font-size: 13px; padding: 8px 12px; }
 }
 .rc { scroll-margin-top: 112px; }
+.hs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 12px; }
+table.house td, table.house th { padding: 6px 6px; }
+@media (max-width: 600px) { .hs { grid-template-columns: 1fr 1fr; } .hs .kpi:last-child { grid-column: 1 / -1; } }

@@ -15,7 +15,7 @@
 
   const S = {
     data: null, prev: null, at: 0, err: null, renderErr: null,
-    sel: hashId(), sort: 'close', sortUser: false, mapMode: 'target',
+    sel: null, sort: 'close', sortUser: false, mapMode: 'target',
     demoT: Math.max(0, Math.min(1, Number(params.get('demo')) || 0)), playing: false,
     seen: new Set(), feed: [], topo: null, notify: false, push: false,
     lastVisit: Number(store.get(DEMO ? 'radar-visit-demo' : 'radar-visit')) || 0,
@@ -161,7 +161,7 @@
     const lines = [
       `<li><b>Senado:</b> ${sWon ? toneTxt + '.' : `se cada partido ganhar onde é favorito agora, o R fica com <b class="num ${proj >= 50 ? 'good' : 'bad'}">${proj}</b> lugares (precisa de 50).`}${!sWon && decisive.length ? ` Decidem-se em ${decisive.map((x) => { const t = d.races.find((r) => r.st === x.st && isSen(r)); return t ? `<a href="#${t.id}" class="st">${esc(x.st)}</a>` : `<b>${esc(x.st)}</b>`; }).join(', ')}.` : ''}</li>`,
       `<li><b>Condados-chave:</b> ${kc.n ? `<b class="num ${kc.up / kc.n >= 0.5 ? 'good' : 'bad'}">${kc.up} de ${kc.n}</b> com o R acima do alvo de empate${kc.up / kc.n >= 0.5 ? ', o que chega para ganhar os estados' : ', abaixo do que precisa'}.` : 'ainda sem votos (precisam de pelo menos 10% contado).'}</li>`,
-      `<li><b>Câmara:</b> ${c.H && c.H.winner ? (c.H.winner === 'GOP' ? 'os republicanos garantiram a maioria.' : 'os democratas garantiram a maioria.') : `hipótese republicana de <b class="num ${pcls(pH)}">${pp(pH)}</b> no modelo do NYT.`}</li>`,
+      `<li><b>Câmara:</b> ${c.H && c.H.winner ? (c.H.winner === 'GOP' ? 'os republicanos garantiram a maioria.' : 'os democratas garantiram a maioria.') : `hipótese republicana de <b class="num ${pcls(pH)}">${pp(pH)}</b> no modelo do NYT.`}${(() => { const h = houseStats(); return h.w.length ? ` Nos <a href="#camara">${h.w.length} distritos a seguir</a>, o R é favorito em <b class="num ${h.fav >= h.w.length / 2 ? 'good' : 'bad'}">${h.fav}</b>${h.callR + h.callD ? ` e a AP já lhe deu <b class="num">${h.callR}</b>` : ''}.` : ''; })()}</li>`,
     ];
     // fecho das urnas nos 11 estados, com o estado de cada um
     const now = Date.now();
@@ -542,6 +542,42 @@
     </svg>`;
   }
 
+  // ---------------------------------------------------------------- Câmara: distritos a seguir
+  function houseStats() {
+    const w = (S.data.house && S.data.house.watch) || [];
+    const fav = w.filter((x) => x.pR != null && x.pR >= 0.5).length;
+    const callR = w.filter((x) => x.call === 'R').length, callD = w.filter((x) => x.call === 'D').length;
+    const gainR = w.filter((x) => x.call === 'R' && x.gained).length, gainD = w.filter((x) => x.call && x.call !== 'R' && x.gained).length;
+    const paced = w.filter((x) => x.pace != null && x.eevp >= 10);
+    const above = paced.filter((x) => x.pace >= 0).length;
+    return { w, fav, callR, callD, gainR, gainD, paced: paced.length, above };
+  }
+  function renderHouse() {
+    if (!$('#house')) return; // página antiga em cache, sem esta secção
+    const h = houseStats();
+    if (!h.w.length) { $('#house').innerHTML = '<p class="muted">Sem dados da Câmara.</p>'; return; }
+    const score = (x) => (x.call ? 2 : 0) + (x.pR != null ? Math.abs(x.pR - 0.5) : 0.5);
+    const rows = h.w.slice().sort((a, b) => score(a) - score(b) || (a.id > b.id ? 1 : -1));
+    const incTxt = (x) => (x.inc === 'R' ? '<span class="r">R</span>' : x.inc ? `<span class="d">${x.inc}</span>` : '<span class="muted">aberto</span>');
+    $('#house').innerHTML = `
+      <div class="hs">
+        <div class="kpi"><div class="k">R favorito (NYT)</div><div class="v num ${h.fav >= h.w.length / 2 ? 'good' : 'bad'}">${h.fav}<span class="of">/${h.w.length}</span></div><div class="s">distritos com hipótese R de pelo menos 50%</div></div>
+        <div class="kpi"><div class="k">R acima do alvo</div><div class="v num ${h.paced ? (h.above / h.paced >= 0.5 ? 'good' : 'bad') : ''}">${h.paced ? `${h.above}<span class="of">/${h.paced}</span>` : '—'}</div><div class="s">${h.paced ? 'distritos com pelo menos 10% contado' : 'Ainda sem votos nestes distritos'}</div></div>
+        <div class="kpi"><div class="k">Projeções da AP</div><div class="v num">${h.callR + h.callD ? `<span class="r">${h.callR}</span><span class="of"> R · </span><span class="d">${h.callD}</span><span class="of"> D</span>` : '—'}</div><div class="s">${h.gainR + h.gainD ? `Mudam de partido: <b class="r">R +${h.gainR}</b> · <b class="d">D +${h.gainD}</b>` : 'nestes 39 distritos'}</div></div>
+      </div>
+      <div class="tbl-wrap"><table class="ov house"><thead><tr><th>Distrito</th><th class="hide-sm">Zona</th><th class="sans">Republicano</th><th class="hide-sm">Democrata</th><th class="hide-sm" title="Partido de quem tem o lugar agora">Titular</th><th class="hide-sm">Classificação</th><th title="Hipótese de vitória do R no modelo ao vivo do NYT">NYT R</th><th>Contado</th><th>Margem</th><th title="Margem nos condados já contados menos o alvo de empate: positivo é bom para o R">Vs alvo</th><th>AP</th></tr></thead><tbody>
+      ${rows.map((x) => `<tr><th scope="row">${esc(x.id)}${x.rcv ? ' <span class="muted" title="Voto por ordem de preferência">(VP)</span>' : ''}</th>
+        <td class="sans small muted hide-sm">${esc(x.zone)}</td>
+        <td class="r sans">${esc(x.R || '—')}${x.inc === 'R' ? '*' : ''}</td><td class="${x.Op === 'I' ? 'i' : 'd'} sans hide-sm">${esc(x.O || '—')}${x.inc && x.inc !== 'R' ? '*' : ''}</td>
+        <td class="hide-sm">${incTxt(x)}</td><td class="sans small muted hide-sm">${esc(RATING[x.rating] || '—')}</td>
+        <td class="${pcls(x.pR)}">${x.call ? '' : pp(x.pR)}</td>
+        <td>${x.eevp ? pct(x.eevp) : '—'}</td><td class="${cls(x.m, x.Op)}">${x.eevp ? fm(x.m, x.Op) : '—'}</td>
+        <td class="${x.pace == null ? '' : good(x.pace)}">${x.pace == null ? '—' : (x.pace >= 0 ? '▲ ' : '▼ ') + signed(x.pace)}</td>
+        <td>${x.call ? `<span class="badge call${x.call}">${x.call}${x.gained ? ' ganha' : ''}</span>` : ''}</td></tr>`).join('')}
+      </tbody></table></div>
+      <p class="note">* titular. "Aberto": lugar sem titular a concorrer. O CO-03 substitui o MT-01, como o autor da lista corrigiu. No Alasca o voto é por ordem de preferência (VP).</p>`;
+  }
+
   // ---------------------------------------------------------------- lugares projetados (placar)
   const BEFORE = { S: 'R 53 · D 45 · I 2', H: null };
   function chamberCard(title, c, needR, needText, total, before, extra) {
@@ -653,6 +689,9 @@
       if (x.runoff) addEvent('srv:runoff-' + off + ':' + x.st, `<b>${esc(x.st)}:</b> vai haver 2.ª volta (${off === 'S' ? 'Senado' : 'governador'}).`, 'call', null, !first);
       if (!x.call || cur.races.some((r) => r.st === x.st && (isSen(r) ? 'S' : 'G') === off)) continue;
       addEvent('srv:call-' + off + ':' + x.st, `<b>AP projeta:</b> ${x.call === 'R' ? esc(x.R) : esc(x.O)} (${x.call}) vence ${off === 'S' ? 'o Senado' : 'o governo'} em ${esc(x.st)}.`, 'call', x.call, false);
+    }
+    for (const x of (cur.house && cur.house.watch) || []) {
+      if (x.call) addEvent('srv:call-H:' + x.id, `<b>AP projeta:</b> ${x.call === 'R' ? esc(x.R) : esc(x.O)} (${x.call}) vence ${esc(x.id)}${x.gained ? (x.call === 'R' ? ' e conquista o lugar' : ' e tira o lugar ao R') : ''} (Câmara, ${esc(x.zone)}).`, 'call', x.call, !first && x.gained);
     }
     for (const k of ['S', 'H']) {
       const c = cur.control[k];
@@ -797,6 +836,7 @@
     renderVerdict();
     renderPulse();
     renderGrid();
+    renderHouse();
     renderScore();
     renderTables();
     renderDetail();
@@ -874,7 +914,20 @@
   renderFeed();
   renderDemoBar();
   setupNotify();
-  load().then(() => { onHash(); schedule(); });
+  load().then(() => {
+    onHash();
+    // ligações para secções (ex.: #camara, vindas das notificações) só funcionam depois de haver conteúdo
+    const h = hashId();
+    const sec = S.sel ? $(`.rc[data-id="${S.sel}"]`) : h && document.getElementById(h);
+    if (sec) {
+      const go = () => sec.scrollIntoView({ block: 'start' });
+      setTimeout(go, 50);
+      // as fontes, ao carregar, mudam a altura do que está acima: volta a posicionar
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => setTimeout(go, 50));
+      setTimeout(go, 900);
+    }
+    schedule();
+  });
   loadServerEvents();
   setInterval(loadServerEvents, 120000);
 })();

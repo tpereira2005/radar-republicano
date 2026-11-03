@@ -22,7 +22,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=IBM+Plex+Mono:wght@400;500;600&family=Public+Sans:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="app.css?v=1793741412">
+<link rel="stylesheet" href="app.css?v=1793741966">
 </head>
 <body>
 <a class="skip" href="#corridas">Saltar para as corridas</a>
@@ -36,7 +36,7 @@
     <div class="clock" id="clock" title="Hora de Lisboa"></div>
   </div>
   <nav class="quick" aria-label="Secções">
-    <div class="wrap"><a href="#resumo">Resumo</a><a href="#corridas">Corridas</a><a href="#minuto">Ao minuto</a><a href="#tabelas">Tabelas</a><a href="#metodo">Como ler</a></div>
+    <div class="wrap"><a href="#resumo">Resumo</a><a href="#corridas">Corridas</a><a href="#camara">Câmara</a><a href="#minuto">Ao minuto</a><a href="#tabelas">Tabelas</a><a href="#metodo">Como ler</a></div>
   </nav>
 </header>
 <div id="demoBar" class="demobar" hidden></div>
@@ -55,6 +55,11 @@
     </div>
     <p class="sec-sub">Senado e governadores nos 11 estados da lista de condados-chave. Cada cartão compara o voto contado com Trump 2024, condado a condado, e estima onde a corrida vai acabar. Toca num cartão para ver o mapa e os condados.</p>
     <div class="grid" id="grid"></div>
+  </section>
+  <section id="camara" aria-labelledby="hCamara">
+    <div class="sec-head"><h2 id="hCamara">Câmara · distritos a seguir</h2></div>
+    <p class="sec-sub">Os 39 lugares mais disputados, da lista de @earlyvotedata. A maioria dá-se com 218 lugares. "Vs alvo" compara os condados já contados com a margem que teriam se o distrito ficasse empatado: positivo é bom para o R.</p>
+    <div id="house"></div>
   </section>
   <section class="score" id="score" aria-label="Lugares projetados pela AP"></section>
   <section class="two" id="minuto">
@@ -87,6 +92,6 @@
 <div class="sr-only" id="sr" aria-live="polite"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
-<script src="app.js?v=1793741412"></script>
+<script src="app.js?v=1793741966"></script>
 </body>
 </html>
