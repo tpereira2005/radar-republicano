@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Radar Republicano · Intercalares 2026</title>
+<meta name="description" content="Acompanhamento ao vivo das intercalares dos EUA de 3 de novembro de 2026, condado a condado, do ponto de vista republicano. Hora de Lisboa.">
+<meta name="theme-color" content="#0d1117">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=IBM+Plex+Mono:wght@400;500;600&family=Public+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap top-in">
+    <a class="brand" href="#" aria-label="Radar Republicano">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span><b>Radar <em>R</em></b><small>Intercalares EUA · 3 nov 2026</small></span>
+    </a>
+    <div class="live" id="live" aria-live="polite"></div>
+    <div class="clock" id="clock" title="Hora de Lisboa"></div>
+  </div>
+</header>
+<div id="demoBar" class="demobar" hidden></div>
+<main class="wrap" id="app">
+  <section class="score" id="score" aria-label="Controlo das câmaras"></section>
+  <section class="pulse" id="pulse" aria-label="Pulso republicano"></section>
+  <section aria-labelledby="hRadar">
+    <div class="sec-head">
+      <h2 id="hRadar">Radar das corridas-chave</h2>
+      <div class="seg" id="sortSeg" role="group" aria-label="Ordenar">
+        <button data-sort="close" aria-pressed="true">Fecho das urnas</button>
+        <button data-sort="tight">Mais renhidas</button>
+        <button data-sort="office">Cargo</button>
+      </div>
+    </div>
+    <p class="sec-sub">Cada cartão compara o voto contado com Trump 2024, condado a condado, e estima onde a corrida vai acabar. Clica para abrir o detalhe.</p>
+    <div class="grid" id="grid"></div>
+  </section>
+  <section class="detail" id="detail" aria-live="polite"></section>
+  <section class="two">
+    <div>
+      <h2>Senado · as 35 corridas</h2>
+      <div id="senate" class="tbl-wrap"></div>
+    </div>
+    <div>
+      <h2>Ao minuto</h2>
+      <div class="feed" id="feed"></div>
+    </div>
+  </section>
+  <section>
+    <h2>Governadores · as 36 corridas</h2>
+    <div id="governors" class="tbl-wrap"></div>
+  </section>
+  <section class="method" id="method">
+    <h2>Como ler isto</h2>
+    <div class="cols3">
+      <div><h3>Alvo de empate</h3><p>Para cada condado-chave (os do fio de @earlyvotedata), o alvo é a margem que esse condado costuma ter quando o estado fica empatado: a média das três eleições da tabela, descontado o resultado estadual. Se o republicano estiver <b>acima do alvo</b>, está a fazer o suficiente para ganhar o estado.</p></div>
+      <div><h3>Estimativa do radar</h3><p>Compara cada condado com Trump 2024 (swing), estende o swing médio aos votos que faltam e soma tudo com os votos esperados pelo NYT. Antes da contagem parte da classificação do NYT. <b>É uma estimativa nossa, não uma projeção.</b> Só a AP e as televisões projetam vencedores.</p></div>
+      <div><h3>Miragem</h3><p>A ordem da contagem não é aleatória. Em muitos estados, o voto por correio e antecipado, que favorece os democratas, é contado primeiro, e o do próprio dia vem depois (ou o contrário). O medidor mostra que tipo de voto já entrou.</p></div>
+    </div>
+    <p class="fine">Dados: ficheiros públicos de resultados do New York Times, com contagens e projeções da Associated Press. Referências de 2024: NYT. Condados-chave e históricos: fio de @earlyvotedata (3/11/2026). Horas em hora de Lisboa. Site não oficial.</p>
+  </section>
+</main>
+<div class="tip" id="tip" role="tooltip" hidden></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

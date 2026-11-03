@@ -1,0 +1,28 @@
+# Mantém a recolha e as notificações push vivas com o site fechado:
+# chama /api/tick de 30 em 30 s durante quase 6 h. Lançar à mão no início da noite;
+# os cron são reserva (o GitHub às vezes ignora-os em noites de muita carga).
+name: Noite eleitoral
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '50 22 3 11 *'
+    - cron: '40 4 4 11 *'
+    - cron: '30 10 4 11 *'
+concurrency:
+  group: noite
+  cancel-in-progress: false
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - name: Chamar /api/tick de 30 em 30 s
+        env:
+          TICK_URL: ${{ secrets.TICK_URL }}
+        run: |
+          end=$(( $(date +%s) + 350*60 ))
+          while [ "$(date +%s)" -lt "$end" ]; do
+            out=$(curl -s --max-time 25 "$TICK_URL" || echo '{"erro":"curl"}')
+            echo "$(date -u +%H:%M:%S) ${out:0:400}"
+            sleep 30
+          done

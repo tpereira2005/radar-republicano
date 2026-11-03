@@ -1,0 +1,7 @@
+{
+  "outputDirectory": "public",
+  "buildCommand": "",
+  "functions": { "api/*.js": { "maxDuration": 30, "includeFiles": "{lib,data}/**" } },
+  "regions": ["iad1"],
+  "headers": [{ "source": "/sw.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }, { "key": "Service-Worker-Allowed", "value": "/" }] }]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "Radar Republicano · Intercalares 2026",
+  "short_name": "Radar R",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b0f15",
+  "theme_color": "#0b0f15",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
