@@ -4,8 +4,6 @@
 const { collect } = require('../lib/radar.js');
 const { readJson, writeJson, summarize, diff, send } = require('../lib/push.js');
 
-let memo = null;
-
 module.exports = async (req, res) => {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store');
@@ -16,24 +14,27 @@ module.exports = async (req, res) => {
   try {
     if (url.searchParams.get('test') === '1') {
       // aviso de teste para todas as subscrições (confirma chaves VAPID, Blob e envio)
-      const out = await send([{ tag: 'teste', title: 'Teste do Radar R', body: 'Se estás a ver isto, as notificações push funcionam.', url: '/' }]);
+      const out = await send([{ tag: 'teste', title: 'Teste do Radar R', body: 'Se estás a ver isto, as notificações push funcionam.', url: '/' }], true);
       return res.end(JSON.stringify({ ok: true, test: true, ...out }));
     }
     const state = await collect();
-    const cur = summarize(state);
-    // com a função "quente", reutiliza o último estado em memória e poupa leituras ao Blob
-    const prev = memo && Date.now() - memo.at < 10 * 60000 ? memo.s : await readJson('state/last.json', null);
-    memo = { s: cur, at: Date.now() };
+    // lê sempre o último estado guardado: várias instâncias da função não podem comparar com estados diferentes
+    const prev = await readJson('state/last.json', null, true);
+    const cur = summarize(state, prev);
     const events = prev ? diff(prev, cur, state) : [];
+    // primeiro envia (se o Blob esgotar a quota, as notificações continuam a sair), depois grava
+    const out = await send(events).catch((e) => ({ sendError: String(e.message || e) }));
+    const writeErrors = [];
     // o plano grátis do Blob tem poucas escritas por mês: só se grava quando algo muda
-    if (!prev || JSON.stringify(prev) !== JSON.stringify(cur)) await writeJson('state/last.json', cur);
+    if (!prev || JSON.stringify(prev) !== JSON.stringify(cur)) await writeJson('state/last.json', cur).catch((e) => writeErrors.push('last: ' + e.message));
     if (events.length) {
-      const log = await readJson('state/events.json', []);
-      const now = new Date().toISOString();
-      await writeJson('state/events.json', events.map((e) => ({ ...e, at: now })).concat(log).slice(0, 300));
+      try {
+        const log = await readJson('state/events.json', [], true);
+        const now = new Date().toISOString();
+        await writeJson('state/events.json', events.map((e) => ({ ...e, at: now })).concat(log).slice(0, 300));
+      } catch (e) { writeErrors.push('events: ' + e.message); }
     }
-    const out = await send(events);
-    res.end(JSON.stringify({ ok: true, at: state.generatedAt, events: events.map((e) => e.title), ...out, errors: state.errors }));
+    res.end(JSON.stringify({ ok: true, at: state.generatedAt, events: events.map((e) => e.title), ...out, writeErrors, errors: state.errors }));
   } catch (e) {
     res.statusCode = 500;
     res.end(JSON.stringify({ error: String(e.message || e) }));

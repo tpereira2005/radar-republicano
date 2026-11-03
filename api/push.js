@@ -18,7 +18,12 @@ module.exports = async (req, res) => {
     if (req.method === 'GET') return res.end(JSON.stringify({ key: process.env.VAPID_PUBLIC_KEY || null }));
     const body = JSON.parse((await readBody(req)) || '{}');
     const sub = body.subscription;
-    if (!sub || typeof sub.endpoint !== 'string' || !/^https:\/\//.test(sub.endpoint) || !sub.keys) {
+    // só serviços de push reais (Google, Mozilla, Apple, Microsoft) e chaves com o formato certo
+    let host = '';
+    try { host = new URL(sub && sub.endpoint).hostname; } catch (e) { /* endereço inválido */ }
+    const okHost = /(^|\.)(fcm\.googleapis\.com|push\.services\.mozilla\.com|push\.apple\.com|notify\.windows\.com)$/.test(host);
+    const okKeys = sub && sub.keys && /^[\w-]{80,100}$/.test(sub.keys.p256dh || '') && /^[\w-]{16,30}$/.test(sub.keys.auth || '');
+    if (!okHost || (req.method === 'POST' && !okKeys)) {
       res.statusCode = 400; return res.end('{"error":"subscrição inválida"}');
     }
     if (req.method === 'POST') await addSub({ endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth } });
