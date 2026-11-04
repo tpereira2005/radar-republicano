@@ -345,3 +345,5 @@ td.good, td.bad { font-weight: 600; }
 .hs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 12px; }
 table.house td, table.house th { padding: 6px 6px; }
 @media (max-width: 600px) { .hs { grid-template-columns: 1fr 1fr; } .hs .kpi:last-child { grid-column: 1 / -1; } }
+.srcs { font: 500 10.5px var(--sans); color: var(--ink3); margin-left: 4px; }
+table.types { margin-top: 10px; }

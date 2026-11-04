@@ -47,7 +47,7 @@
   // votos que faltam e margem de que o R precisa neles para empatar (pontos)
   function needed(r) {
     const left = Math.max(0, r.expected - r.total);
-    if (!r.total || left < 1) return null;
+    if (!r.total || left < 1 || r.eevp < 1) return null; // com quase nada contado, a conta não diz nada
     return { left, need: ((r.O.votes - r.R.votes) / left) * 100 };
   }
   const STNAME = { FL: 'Florida', OH: 'Ohio', TX: 'Texas', MI: 'Michigan', NC: 'Carolina do Norte', ME: 'Maine', GA: 'Geórgia', IA: 'Iowa', AZ: 'Arizona', KS: 'Kansas', NH: 'New Hampshire' };
@@ -123,13 +123,14 @@
     const p = c.winner === 'GOP' ? 1 : c.winner === 'DEM' ? 0 : g.p;
     const won = c.winner === 'GOP' ? 'R garantiu' : c.winner === 'DEM' ? 'D garantiu' : null;
     const word = won || (p >= 0.85 ? 'R muito favorito' : p >= 0.6 ? 'R favorito' : p > 0.4 ? 'Moeda ao ar' : p > 0.15 ? 'D favorito' : 'D muito favorito');
-    const first = c.ts && c.ts.length ? c.ts[0][1] : null;
-    const delta = first != null && c.ts.length > 1 ? Math.round((p - first) * 100) : null;
+    const hist = (S.hist && S.hist[name === 'Senado' ? 'S' : 'H']) || c.ts || [];
+    const first = hist.length ? hist[0][1] : null;
+    const delta = first != null && hist.length > 1 ? Math.round((p - first) * 100) : null;
     return `<div class="vd-card ${won ? (c.winner === 'GOP' ? 'won-r' : 'won-d') : ''}">
       <div class="vd-k">${name} · hipótese de maioria republicana <span class="src">modelo NYT</span></div>
       <div class="vd-row"><span class="vd-p ${pcls(p)} num">${won ? (c.winner === 'GOP' ? 'R' : 'D') : pp(p)}</span><span class="vd-w">${word}${delta ? `<small class="${delta > 0 ? 'good' : 'bad'}">${delta > 0 ? '▲' : '▼'} ${Math.abs(delta)} pontos desde o início da noite</small>` : ''}</span></div>
       <div class="vd-meter" aria-hidden="true"><span style="width:${(p * 100).toFixed(1)}%"></span><i></i></div>
-      <div class="vd-foot"><span>Lugares R previstos: <b class="num">${g.seats}</b>${g.q ? ` <span class="muted num">(entre ${g.q[1]} e ${g.q[3]})</span>` : ''} · precisa de ${need}</span>${probSpark(c.ts)}</div>
+      <div class="vd-foot"><span>Lugares R previstos: <b class="num">${g.seats}</b>${g.q ? ` <span class="muted num">(entre ${g.q[1]} e ${g.q[3]})</span>` : ''} · precisa de ${need}</span>${probSpark(hist)}</div>
     </div>`;
   }
   function keyCounties() {
@@ -137,7 +138,7 @@
     const byState = {};
     for (const r of S.data.races) if (!byState[r.st] || isSen(r)) byState[r.st] = r;
     let up = 0, n = 0;
-    for (const r of Object.values(byState)) if (r.watch) for (const w of r.watch.rows) if (w.m != null && w.f >= 10) { n++; if (w.m >= w.target) up++; }
+    for (const r of Object.values(byState)) if (r.watch) for (const w of r.watch.rows) if (w.m != null && w.f >= 10 && !w.flag) { n++; if (w.m >= w.target) up++; }
     return { up, n, byState };
   }
   function renderVerdict() {
@@ -160,7 +161,7 @@
     const toneTxt = sWon ? (sWon === 'GOP' ? 'Os republicanos garantiram o Senado' : 'Os democratas garantiram o Senado') : lvl == null ? '' : ['Noite difícil para os republicanos', 'Noite equilibrada', 'Noite boa para os republicanos'][lvl];
     const lines = [
       `<li><b>Senado:</b> ${sWon ? toneTxt + '.' : `se cada partido ganhar onde é favorito agora, o R fica com <b class="num ${proj >= 50 ? 'good' : 'bad'}">${proj}</b> lugares (precisa de 50).`}${!sWon && decisive.length ? ` Decidem-se em ${decisive.map((x) => { const t = d.races.find((r) => r.st === x.st && isSen(r)); return t ? `<a href="#${t.id}" class="st">${esc(x.st)}</a>` : `<b>${esc(x.st)}</b>`; }).join(', ')}.` : ''}</li>`,
-      `<li><b>Condados-chave:</b> ${kc.n ? `<b class="num ${kc.up / kc.n >= 0.5 ? 'good' : 'bad'}">${kc.up} de ${kc.n}</b> com o R acima do alvo de empate${kc.up / kc.n >= 0.5 ? ', o que chega para ganhar os estados' : ', abaixo do que precisa'}.` : 'ainda sem votos (precisam de pelo menos 10% contado).'}</li>`,
+      `<li><b>Condados-chave:</b> ${kc.n ? `<b class="num ${kc.up / kc.n >= 0.5 ? 'good' : 'bad'}">${kc.up} de ${kc.n}</b> com o R acima do alvo de empate${kc.up / kc.n >= 0.5 ? ', o que chega para ganhar os estados' : ', abaixo do que precisa'}.` : 'ainda sem votos comparáveis (10% contado e os dois tipos de voto).'}</li>`,
       `<li><b>Câmara:</b> ${c.H && c.H.winner ? (c.H.winner === 'GOP' ? 'os republicanos garantiram a maioria.' : 'os democratas garantiram a maioria.') : `hipótese republicana de <b class="num ${pcls(pH)}">${pp(pH)}</b> no modelo do NYT.`}${(() => { const h = houseStats(); return h.w.length ? ` Nos <a href="#camara">${h.w.length} distritos a seguir</a>, o R é favorito em <b class="num ${h.fav >= h.w.length / 2 ? 'good' : 'bad'}">${h.fav}</b>${h.callR + h.callD ? ` e a AP já lhe deu <b class="num">${h.callR}</b>` : ''}.` : ''; })()}</li>`,
     ];
     // fecho das urnas nos 11 estados, com o estado de cada um
@@ -214,7 +215,7 @@
     let sw = 0, sv = 0, fR = 0, fD = 0, above = 0, withT = 0;
     for (const r of Object.values(byState)) for (const c of r.counties) {
       const T = c[4];
-      if (!(T > 0) || c[6] == null) continue;
+      if (!(T > 0) || c[6] == null || c[9]) continue; // c[9]: só um tipo de voto contado, ainda não compara
       const m = ((c[2] - c[3]) / T) * 100;
       sw += T * (m - c[6]); sv += T;
       if (c[1] < 20) continue;
@@ -225,7 +226,7 @@
     const calls = S.data.senate.concat(S.data.governors).filter((x) => x.call);
     const cR = calls.filter((x) => x.call === 'R').length, cD = calls.filter((x) => x.call === 'D').length;
     $('#pulse').innerHTML = `
-      <div class="kpi"><div class="k">Condados-chave acima do alvo</div><div class="v num ${n ? (up / n >= 0.5 ? 'good' : 'bad') : ''}">${n ? `${up}<span class="of">/${n}</span>` : '—'}</div><div class="s">${n ? (up / n >= 0.5 ? 'Bom sinal: a maioria está onde o R precisa.' : 'Mau sinal: a maioria está abaixo do que o R precisa.') : 'Os condados da lista, com pelo menos 10% contado.'}${withT ? ` Em todos os condados: ${Math.round((above / withT) * 100)}% acima.` : ''}</div></div>
+      <div class="kpi"><div class="k">Condados-chave acima do alvo</div><div class="v num ${n ? (up / n >= 0.5 ? 'good' : 'bad') : ''}">${n ? `${up}<span class="of">/${n}</span>` : '—'}</div><div class="s">${n ? (up / n >= 0.5 ? 'Bom sinal: a maioria está onde o R precisa.' : 'Mau sinal: a maioria está abaixo do que o R precisa.') : 'Os condados da lista, com pelo menos 10% contado e os dois tipos de voto.'}${withT ? ` Em todos os condados: ${Math.round((above / withT) * 100)}% acima.` : ''}</div></div>
       <div class="kpi"><div class="k">Face a Trump 2024</div><div class="v num ${good(swing)}">${swing == null ? '—' : signed(swing)}</div><div class="s">${swing == null ? 'Margem do R menos a de Trump, nos condados já contados.' : swing >= 0 ? `O R está ${nf1.format(swing)} pontos melhor do que Trump nos condados contados.` : `O R está ${nf1.format(-swing)} pontos pior do que Trump nos condados contados.`}</div></div>
       <div class="kpi"><div class="k">Condados que mudaram de lado</div><div class="v num">${fR + fD ? `<span class="r">${fR}</span><span class="of"> para R · </span><span class="d">${fD}</span><span class="of"> para D</span>` : '—'}</div><div class="s">Face a 2024, com pelo menos 20% contado.</div></div>
       <div class="kpi"><div class="k">Projeções da AP</div><div class="v num">${calls.length ? `<span class="r">${cR}</span><span class="of"> R · </span><span class="d">${cD}</span><span class="of"> D</span>` : '—'}</div><div class="s">${calls.length ? 'Corridas ao Senado e a governador já projetadas.' : 'Ainda nenhuma projeção.'}</div></div>`;
@@ -254,12 +255,13 @@
       <text x="${W - 2}" y="35" font-size="11" fill="#8593a5" text-anchor="end" font-family="IBM Plex Mono">R+20</text>
     </svg>`;
   }
+  const srcTxt = (r) => (r.radar.src === 'nyt' ? 'NYT' : r.radar.src === 'nyt-senado' ? 'NYT + voto dividido' : 'radar');
   function raceCard(r) {
     const tot = r.R.votes + r.O.votes;
     const sR = r.total ? (r.R.votes / r.total) * 100 : null, sO = r.total ? (r.O.votes / r.total) * 100 : null;
     const nd = r.call ? null : needed(r);
     const lo = r.radar.proj - 1.64 * r.radar.sd, hi = r.radar.proj + 1.64 * r.radar.sd;
-    const pills = r.watch ? r.watch.rows.map((w) => `<span class="${w.m == null || w.f < 10 ? '' : w.m >= w.target ? 'up' : 'dn'}" title="${esc(w.n)}${w.m == null || w.f < 10 ? ': sem votos suficientes' : w.m >= w.target ? ': acima do alvo' : ': abaixo do alvo'}"></span>`).join('') : '';
+    const pills = r.watch ? r.watch.rows.map((w) => `<span class="${w.m == null || w.f < 10 || w.flag ? '' : w.m >= w.target ? 'up' : 'dn'}" title="${esc(w.n)}${w.flag ? ': só um tipo de voto contado' : w.m == null || w.f < 10 ? ': sem votos suficientes' : w.m >= w.target ? ': acima do alvo' : ': abaixo do alvo'}"></span>`).join('') : '';
     return `<a class="rc" href="#${r.id}" data-id="${r.id}" aria-current="${S.sel === r.id ? 'true' : 'false'}" aria-label="${esc(STNAME[r.st] || r.stName)}, ${esc(r.office)}: ${esc(r.R.name)} contra ${esc(r.O.name)}${r.total ? ', margem ' + fm(r.m, r.O.party) + ' com ' + pct(r.eevp) + ' contado' : ''}">
       <span class="rc-top"><span class="rc-st">${esc(STNAME[r.st] || r.stName)}<span class="rc-off">${esc(r.office)}</span></span>${statusBadge(r)}</span>
       <span class="rc-cands">
@@ -271,7 +273,7 @@
       <span class="prog"><span style="width:${Math.min(100, r.eevp)}%"></span></span>
       <span class="gauge">${gauge(r)}</span>
       <span class="rc-foot"><span>Final estimado: <b class="${cls(r.radar.proj, r.O.party)} num">${fm(r.radar.proj, r.O.party)}</b> <span class="muted">(entre ${fm(hi, r.O.party)} e ${fm(lo, r.O.party)})</span></span></span>
-      <span class="rc-foot"><span class="pr ${pcls(r.radar.pR)}" title="Hipótese de vitória do R segundo o radar">R ${r.call ? (r.call.who === 'R' ? 'ganhou' : 'perdeu') : pp(r.radar.pR)}</span>${r.nyt && !r.call ? `<span class="pr muted" title="Modelo ao vivo do NYT">NYT ${pp(r.nyt.pR)}</span>` : ''}</span>
+      <span class="rc-foot"><span class="pr ${pcls(r.radar.pR)}" title="Hipótese de vitória do R (${srcTxt(r)})">R ${r.call ? (r.call.who === 'R' ? 'ganhou' : 'perdeu') : pp(r.radar.pR)} <i class="srcs">${srcTxt(r)}</i></span></span>
       ${nd ? `<span class="rc-need ${nd.need > 0 ? 'bad' : 'good'}">${nd.need <= 0 ? `O R pode perder o que falta por até <b class="num">${nf1.format(-nd.need)}</b> pontos e ainda ganha` : `O R precisa de ganhar o que falta por <b class="num">${nf1.format(nd.need)}</b> pontos`}</span>` : ''}
       ${pills ? `<span class="wpills" aria-hidden="true">${pills}</span>` : ''}
     </a>`;
@@ -326,16 +328,16 @@
   const PARTY = ['#1e3a8a', '#2563eb', '#93c5fd', '#e5e7eb', '#fca5a5', '#dc2626', '#7f1d1d'];
   const GOODBAD = ['#9a3412', '#ea580c', '#fdba74', '#e5e7eb', '#86efac', '#16a34a', '#14532d'];
   const MAPMODES = {
-    target: { label: 'Vs alvo', lim: 15, colors: GOODBAD, val: (c) => (c.T > 0 && c.tgt != null ? c.m - c.tgt : null), legend: ['Abaixo do alvo (mau para o R)', 'Acima do alvo (bom para o R)'],
+    target: { label: 'Vs alvo', lim: 15, colors: GOODBAD, val: (c) => (c.T > 0 && c.tgt != null && !c.flag ? c.m - c.tgt : null), legend: ['Abaixo do alvo (mau para o R)', 'Acima do alvo (bom para o R)'],
       note: 'compara cada condado com a margem que teria se o estado ficasse empatado. Verde: o R está a fazer o que precisa; laranja: não está.' },
-    swing: { label: 'Face a Trump 2024', lim: 15, colors: GOODBAD, val: (c) => (c.T > 0 ? c.m - c.m24 : null), legend: ['Pior do que Trump', 'Melhor do que Trump'],
+    swing: { label: 'Face a Trump 2024', lim: 15, colors: GOODBAD, val: (c) => (c.T > 0 && !c.flag ? c.m - c.m24 : null), legend: ['Pior do que Trump', 'Melhor do que Trump'],
       note: 'mostra quanto o R está melhor (verde) ou pior (laranja) do que Trump em 2024 em cada condado.' },
     margin: { label: 'Margem', lim: 40, colors: PARTY, val: (c) => (c.T > 0 ? c.m : null), legend: ['D/I à frente', 'R à frente'], note: 'mostra quem está à frente em cada condado, com o que já foi contado.' },
     prog: { label: '% contado', colors: null, val: (c) => c.f, legend: ['0%', '100%'], note: 'mostra a percentagem estimada dos votos já contados em cada condado.' },
     base: { label: 'Trump 2024', lim: 40, colors: PARTY, val: (c) => c.m24, legend: ['Harris', 'Trump'], note: 'mostra o resultado presidencial de 2024, para referência.' },
   };
   function countyObjs(r) {
-    return r.counties.map(([k, f, R, O, T, E, m24, tgt, n]) => ({ k, f, R, O, T, E, m24, tgt, n, m: T > 0 ? ((R - O) / T) * 100 : null }));
+    return r.counties.map(([k, f, R, O, T, E, m24, tgt, n, flag]) => ({ k, f, R, O, T, E, m24, tgt, n, flag, m: T > 0 ? ((R - O) / T) * 100 : null }));
   }
 
   let detailSig = '';
@@ -360,19 +362,19 @@
     const wt = r.watch ? `<div class="box"><div class="box-h"><h3>Condados-chave de @earlyvotedata</h3><span class="muted small">alvo = margem com o estado empatado</span></div>
       <div class="tscroll"><table class="watch"><thead><tr><th>Condado</th><th title="Margem atual menos o alvo da lista: positivo é bom para o R">R vs alvo</th><th>Agora</th><th>Contado</th><th title="Alvo da lista de @earlyvotedata">Alvo</th><th title="O mesmo alvo, calculado pelo NYT para 2026">Alvo NYT</th>${r.watch.cols.map((c) => `<th title="${esc(c.label)}">${esc(c.label.split(' · ')[0])}</th>`).join('')}</tr></thead><tbody>
       ${r.watch.rows.map((w) => {
-        const vs = w.m != null ? w.m - w.target : null;
+        const vs = w.m != null && !w.flag ? w.m - w.target : null;
         const bar = vs == null ? '' : `<i class="vbar ${vs >= 0 ? 'good' : 'bad'}" style="width:${Math.min(40, Math.abs(vs) * 2)}px"></i>`;
         return `<tr class="${w.m != null && w.f >= 10 ? 'hl' : ''}"><th scope="row">${esc(w.n)}</th>
-          <td class="${vs == null ? '' : vs >= 0 ? 'good' : 'bad'}">${vs == null ? '—' : (vs >= 0 ? '▲ ' : '▼ ') + signed(vs)}${bar}</td>
+          <td class="${vs == null ? '' : vs >= 0 ? 'good' : 'bad'}">${w.flag ? `<span class="muted small">só ${w.flag > 0 ? 'antecipado' : 'do dia'}</span>` : vs == null ? '—' : (vs >= 0 ? '▲ ' : '▼ ') + signed(vs)}${bar}</td>
           <td class="${cls(w.m, op)}">${w.T ? fm(w.m, op) : '—'}</td><td>${w.T ? pct(w.f) : '—'}</td>
           <td class="${cls(w.target)}">${fm(w.target)}</td><td class="${cls(w.nyt)}">${fm(w.nyt)}</td>
           ${w.v.map(([R, D]) => `<td class="hist"><span class="r">${nf1.format(R)}</span>–<span class="d">${nf1.format(D)}</span></td>`).join('')}</tr>`;
       }).join('')}</tbody></table></div>
-      <p class="note">As três últimas colunas são os resultados R–D da lista original. Com pouco contado, a margem de um condado ainda pode mudar muito.</p></div>` : '';
+      <p class="note">As três últimas colunas são os resultados R–D da lista original. "só antecipado": ainda só entrou esse tipo de voto, por isso a margem ainda não se compara com o alvo.</p></div>` : '';
 
     // miragem
     const T = r.types || {};
-    const tl = { absentee_mail: ['Correio', '#8b5cf6'], advance_in_person: ['Antecipado presencial', '#06b6d4'], advance: ['Antecipado', '#06b6d4'], election_day_in_person: ['No próprio dia', '#e0b341'], provisional: ['Provisório', '#64748b'] };
+    const tl = { advance: ['Antecipado e correio', '#06b6d4'], election_day_in_person: ['No próprio dia', '#e0b341'], provisional: ['Provisório', '#64748b'] };
     const keys = Object.keys(T);
     let mirage = '<p class="note">O NYT não publica a divisão por tipo de voto neste estado.</p>';
     if (keys.length) {
@@ -386,6 +388,7 @@
       mirage = `<div class="mir"><span class="muted">Já contado</span><div class="stack">${cntT ? seg(cnt, cntT) : '<span style="width:100%;color:#8593a5">ainda nada</span>'}</div>
         <span class="muted">Esperado no total</span><div class="stack">${seg(keys.map((k) => T[k].exp), expT)}</div></div>
         <div class="legend">${keys.map((k) => `<span class="lg"><i style="background:${tl[k][1]}"></i>${tl[k][0]}</span>`).join('')}</div>
+        ${keys.some((k) => T[k].m != null) ? `<table class="types"><thead><tr><th>Tipo de voto</th><th>Contado</th><th>Margem</th></tr></thead><tbody>${keys.filter((k) => T[k].exp > 0 && (k !== 'provisional' || T[k].m != null)).map((k) => `<tr><th scope="row">${tl[k][0]}</th><td>${pct(T[k].pct)}</td><td class="${cls(T[k].m, op)}">${T[k].m != null ? fm(T[k].m, op) : '—'}</td></tr>`).join('')}</tbody></table>` : ''}
         ${chip ? `<p class="note">${chip}</p>` : ''}`;
     }
 
@@ -411,8 +414,7 @@
           <div><div class="k">Contado</div><div class="v num">${pct(r.eevp)}</div></div>
           <div><div class="k">Margem agora</div><div class="v ${cls(r.m, op)} num">${r.total ? fm(r.m, op) : '—'}</div></div>
           <div><div class="k">Final estimado</div><div class="v ${cls(r.radar.proj, op)} num">${fm(r.radar.proj, op)}</div></div>
-          <div><div class="k">Hipótese R (radar)</div><div class="v ${pcls(r.radar.pR)} num">${r.call ? (r.call.who === 'R' ? 'Ganhou' : 'Perdeu') : pp(r.radar.pR)}</div></div>
-          ${r.nyt && !r.call ? `<div><div class="k">Hipótese R (NYT)</div><div class="v ${pcls(r.nyt.pR)} num">${pp(r.nyt.pR)}</div></div>` : ''}
+          <div><div class="k">Hipótese R (${srcTxt(r)})</div><div class="v ${pcls(r.radar.pR)} num">${r.call ? (r.call.who === 'R' ? 'Ganhou' : 'Perdeu') : pp(r.radar.pR)}</div></div>
           ${nd ? `<div><div class="k">${nd.need > 0 ? 'R precisa no que falta' : 'Folga do R no que falta'}</div><div class="v ${nd.need > 0 ? 'bad' : 'good'} num">${nd.need > 0 ? 'R+' : ''}${nf1.format(Math.abs(nd.need))}</div></div>` : ''}
           <div><div class="k">Trump 2024</div><div class="v ${cls(r.m24)} num">${fm(r.m24)}</div></div>
         </div>
@@ -459,18 +461,20 @@
   // as duas estimativas lado a lado, no mesmo eixo
   function modelBox(r) {
     const W = window.innerWidth < 600 ? 340 : 600, lim = 25, X = (m) => 44 + ((Math.max(-lim, Math.min(lim, m)) + lim) / (2 * lim)) * (W - 64);
-    const p = r.radar.proj, sd = r.radar.sd;
+    const p = r.own.proj, sd = r.own.sd;
     const row = (y, lo, mid, hi, color, label) => `<text x="0" y="${y + 4}" font-size="12" fill="#a7b3c2" font-family="Public Sans">${label}</text>
       <rect x="${X(lo)}" y="${y - 6}" width="${Math.max(2, X(hi) - X(lo))}" height="12" rx="3" fill="${color}" opacity=".35"/>
       <circle cx="${X(mid)}" cy="${y}" r="6" fill="${color}" stroke="#0b0f15" stroke-width="2"/>`;
-    const q = r.nyt && r.nyt.q;
+    // segunda linha: o modelo do NYT ou, nos governadores, o do Senado mais o voto dividido
+    const q = r.nyt && r.nyt.q ? r.nyt.q : r.radar.src === 'nyt-senado' ? [r.radar.proj - 2 * r.radar.sd, r.radar.proj - 0.67 * r.radar.sd, r.radar.proj, r.radar.proj + 0.67 * r.radar.sd, r.radar.proj + 2 * r.radar.sd] : null;
+    const qName = r.nyt && r.nyt.q ? 'NYT' : 'NYT+div.';
     const ticks = (W < 600 ? [-20, 0, 20] : [-20, -10, 0, 10, 20]).map((t) => `<line x1="${X(t)}" x2="${X(t)}" y1="8" y2="${q ? 74 : 48}" stroke="${t ? '#233041' : '#a7b3c2'}" ${t ? 'stroke-dasharray="2 3"' : ''}/><text x="${X(t)}" y="${q ? 89 : 63}" font-size="11" text-anchor="middle" fill="#8593a5" font-family="IBM Plex Mono">${t ? (t > 0 ? 'R+' : r.O.party + '+') + Math.abs(t) : '0'}</text>`).join('');
     return `<div class="box model"><div class="box-h"><h3>Onde vai acabar: as duas estimativas</h3><span class="muted small">ponto = mais provável · barra = intervalo provável</span></div>
       <svg viewBox="0 0 ${W} ${q ? 93 : 67}" class="msvg" role="img" aria-label="Estimativa do radar ${fm(p, r.O.party)}${q ? ' e do NYT ' + fm(q[2], r.O.party) : ''}">${ticks}
         ${row(26, p - 1.28 * sd, p, p + 1.28 * sd, p >= 0 ? '#ef4444' : '#3b82f6', 'Radar')}
-        ${q ? `<line x1="${X(q[0])}" x2="${X(q[4])}" y1="56" y2="56" stroke="#a7b3c2" stroke-width="1.5"/>${row(56, q[1], q[2], q[3], q[2] >= 0 ? '#ef4444' : '#3b82f6', 'NYT')}` : ''}
+        ${q ? `<line x1="${X(q[0])}" x2="${X(q[4])}" y1="56" y2="56" stroke="#a7b3c2" stroke-width="1.5"/>${row(56, q[1], q[2], q[3], q[2] >= 0 ? '#ef4444' : '#3b82f6', qName)}` : ''}
       </svg>
-      <p class="note">Radar: <b class="${cls(p, r.O.party)}">${fm(p, r.O.party)}</b>, o R ganha em ${pp(r.radar.pR)} dos cenários.${q ? ` NYT: <b class="${cls(q[2], r.O.party)}">${fm(q[2], r.O.party)}</b>, o R ganha em ${pp(r.nyt.pR)}${r.nyt.status === 'inactive' ? ' (o modelo do NYT ainda está à espera de resultados)' : ''}.` : ' O NYT não publica modelo ao vivo para esta corrida.'}</p></div>`;
+      <p class="note">Radar (condado a condado, face a Trump 2024): <b class="${cls(p, r.O.party)}">${fm(p, r.O.party)}</b>, o R ganha em ${pp(r.own.pR)} dos cenários.${r.nyt && r.nyt.q ? ` Modelo do NYT, que é a estimativa principal porque conta com o que falta por tipo de voto: <b class="${cls(q[2], r.O.party)}">${fm(q[2], r.O.party)}</b>, o R ganha em ${pp(r.nyt.pR)}${r.nyt.status === 'inactive' ? ' (ainda à espera de resultados)' : ''}.` : r.radar.src === 'nyt-senado' ? ` O NYT não tem modelo para esta corrida; a estimativa principal parte do modelo dele para o Senado no mesmo estado e soma a diferença entre as duas corridas nos condados contados: <b class="${cls(q[2], r.O.party)}">${fm(q[2], r.O.party)}</b>, o R ganha em ${pp(r.radar.pR)}.` : ' O NYT não publica modelo ao vivo para esta corrida.'}</p></div>`;
   }
 
   let countyNames = {};
@@ -494,11 +498,11 @@
     holder.innerHTML = `<svg viewBox="${x0 - pad} ${y0 - pad} ${x1 - x0 + 2 * pad} ${y1 - y0 + 2 * pad}" role="img" aria-label="Mapa dos condados de ${esc(r.stName)}: ${esc(mode.label)}">${feats.map((f) => {
       const c = byK[f.id];
       const v = c ? mode.val(c) : null;
-      return `<path d="${path(f)}" data-k="${f.id}" fill="${v == null ? '#222c39' : color(v)}"/>`;
+      return `<path d="${path(f)}" data-k="${f.id}" fill="${v == null ? (c && c.flag && c.T > 0 ? '#46536a' : '#222c39') : color(v)}"/>`;
     }).join('')}${feats.filter((f) => names[f.id]).map((f) => `<path d="${path(f)}" fill="none" class="watch"/>`).join('')}</svg>`;
     const ramp = mode.colors ? mode.colors.join(', ') : '#1d2633, #e0b341';
     const ticks = mode.colors ? `<span class="ticks num"><span>−${mode.lim}</span><span>0</span><span>+${mode.lim}</span></span>` : '';
-    $('#mapLegend', detailEl).innerHTML = `<span>${mode.legend[0]}</span><span class="rampw"><span class="ramp" style="background:linear-gradient(90deg, ${ramp})"></span>${ticks}</span><span>${mode.legend[1]}</span><span class="lg"><i style="background:#222c39"></i>sem votos</span>`;
+    $('#mapLegend', detailEl).innerHTML = `<span>${mode.legend[0]}</span><span class="rampw"><span class="ramp" style="background:linear-gradient(90deg, ${ramp})"></span>${ticks}</span><span>${mode.legend[1]}</span><span class="lg"><i style="background:#222c39"></i>sem votos</span>${S.mapMode === 'target' || S.mapMode === 'swing' ? '<span class="lg"><i style="background:#46536a"></i>só um tipo de voto</span>' : ''}`;
     const svg = holder.querySelector('svg');
     const show = (e) => {
       const p = e.target.closest('path[data-k]');
@@ -508,7 +512,7 @@
       const v = c ? mode.val(c) : null;
       const head = v == null || S.mapMode === 'prog' || S.mapMode === 'base' || S.mapMode === 'margin' ? ''
         : `<b class="${v >= 0 ? 'good' : 'bad'}">${S.mapMode === 'target' ? (v >= 0 ? 'Acima do alvo: ' : 'Abaixo do alvo: ') : (v >= 0 ? 'Melhor do que Trump: ' : 'Pior do que Trump: ')}${signed(v)} ${v >= 0 ? '✔' : '✖'}</b><br>`;
-      tip.innerHTML = `<b>${esc(n)}</b>${names[p.dataset.k] ? ' <span style="color:#e0b341">★ condado-chave</span>' : ''}<br>${head}` + (c
+      tip.innerHTML = `<b>${esc(n)}</b>${names[p.dataset.k] ? ' <span style="color:#e0b341">★ condado-chave</span>' : ''}<br>${c && c.flag && c.T > 0 ? `<span class="muted">Só entrou voto ${c.flag > 0 ? 'antecipado' : 'do próprio dia'}: ainda não compara</span><br>` : ''}${head}` + (c
         ? `Contado: ${pct(c.f)}${c.T ? ` · ${compact(c.T)} votos` : ''}<br>Agora: <span class="${cls(c.m, r.O.party)}">${c.T ? fm(c.m, r.O.party) : '—'}</span>${c.tgt != null ? ` · alvo <span class="${cls(c.tgt)}">${fm(c.tgt)}</span>` : ''}<br>Trump 2024: <span class="${cls(c.m24)}">${fm(c.m24)}</span>`
         : 'Sem dados');
       tip.hidden = false;
@@ -548,9 +552,9 @@
     const fav = w.filter((x) => x.pR != null && x.pR >= 0.5).length;
     const callR = w.filter((x) => x.call === 'R').length, callD = w.filter((x) => x.call === 'D').length;
     const gainR = w.filter((x) => x.call === 'R' && x.gained).length, gainD = w.filter((x) => x.call && x.call !== 'R' && x.gained).length;
-    const paced = w.filter((x) => x.pace != null && x.eevp >= 10);
-    const above = paced.filter((x) => x.pace >= 0).length;
-    return { w, fav, callR, callD, gainR, gainD, paced: paced.length, above };
+    const counted = w.filter((x) => x.eevp >= 10 && !x.call);
+    const ahead = counted.filter((x) => x.m > 0).length;
+    return { w, fav, callR, callD, gainR, gainD, counted: counted.length, ahead };
   }
   function renderHouse() {
     if (!$('#house')) return; // página antiga em cache, sem esta secção
@@ -562,17 +566,16 @@
     $('#house').innerHTML = `
       <div class="hs">
         <div class="kpi"><div class="k">R favorito (NYT)</div><div class="v num ${h.fav >= h.w.length / 2 ? 'good' : 'bad'}">${h.fav}<span class="of">/${h.w.length}</span></div><div class="s">distritos com hipótese R de pelo menos 50%</div></div>
-        <div class="kpi"><div class="k">R acima do alvo</div><div class="v num ${h.paced ? (h.above / h.paced >= 0.5 ? 'good' : 'bad') : ''}">${h.paced ? `${h.above}<span class="of">/${h.paced}</span>` : '—'}</div><div class="s">${h.paced ? 'distritos com pelo menos 10% contado' : 'Ainda sem votos nestes distritos'}</div></div>
+        <div class="kpi"><div class="k">R à frente agora</div><div class="v num">${h.counted ? `${h.ahead}<span class="of">/${h.counted}</span>` : '—'}</div><div class="s">${h.counted ? 'por decidir, com pelo menos 10% contado. Cuidado com a miragem.' : 'Ainda sem votos nestes distritos'}</div></div>
         <div class="kpi"><div class="k">Projeções da AP</div><div class="v num">${h.callR + h.callD ? `<span class="r">${h.callR}</span><span class="of"> R · </span><span class="d">${h.callD}</span><span class="of"> D</span>` : '—'}</div><div class="s">${h.gainR + h.gainD ? `Mudam de partido: <b class="r">R +${h.gainR}</b> · <b class="d">D +${h.gainD}</b>` : 'nestes 39 distritos'}</div></div>
       </div>
-      <div class="tbl-wrap"><table class="ov house"><thead><tr><th>Distrito</th><th class="hide-sm">Zona</th><th class="sans">Republicano</th><th class="hide-sm">Democrata</th><th class="hide-sm" title="Partido de quem tem o lugar agora">Titular</th><th class="hide-sm">Classificação</th><th title="Hipótese de vitória do R no modelo ao vivo do NYT">NYT R</th><th>Contado</th><th>Margem</th><th title="Margem nos condados já contados menos o alvo de empate: positivo é bom para o R">Vs alvo</th><th>AP</th></tr></thead><tbody>
+      <div class="tbl-wrap"><table class="ov house"><thead><tr><th>Distrito</th><th class="hide-sm">Zona</th><th class="sans">Republicano</th><th class="hide-sm">Democrata</th><th class="hide-sm" title="Partido de quem tem o lugar agora">Titular</th><th class="hide-sm">Classificação</th><th title="Hipótese de vitória do R no modelo ao vivo do NYT">NYT R</th><th>Contado</th><th>Margem</th><th>AP</th></tr></thead><tbody>
       ${rows.map((x) => `<tr><th scope="row">${esc(x.id)}${x.rcv ? ' <span class="muted" title="Voto por ordem de preferência">(VP)</span>' : ''}</th>
         <td class="sans small muted hide-sm">${esc(x.zone)}</td>
         <td class="r sans">${esc(x.R || '—')}${x.inc === 'R' ? '*' : ''}</td><td class="${x.Op === 'I' ? 'i' : 'd'} sans hide-sm">${esc(x.O || '—')}${x.inc && x.inc !== 'R' ? '*' : ''}</td>
         <td class="hide-sm">${incTxt(x)}</td><td class="sans small muted hide-sm">${esc(RATING[x.rating] || '—')}</td>
         <td class="${pcls(x.pR)}">${x.call ? '' : pp(x.pR)}</td>
         <td>${x.eevp ? pct(x.eevp) : '—'}</td><td class="${cls(x.m, x.Op)}">${x.eevp ? fm(x.m, x.Op) : '—'}</td>
-        <td class="${x.pace == null ? '' : good(x.pace)}">${x.pace == null ? '—' : (x.pace >= 0 ? '▲ ' : '▼ ') + signed(x.pace)}</td>
         <td>${x.call ? `<span class="badge call${x.call}">${x.call}${x.gained ? ' ganha' : ''}</span>` : ''}</td></tr>`).join('')}
       </tbody></table></div>
       <p class="note">* titular. "Aberto": lugar sem titular a concorrer. O CO-03 substitui o MT-01, como o autor da lista corrigiu. No Alasca o voto é por ordem de preferência (VP).</p>`;
@@ -714,7 +717,8 @@
   async function loadServerEvents() {
     if (DEMO) return;
     try {
-      const { events } = await (await fetch('/api/events', { signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined })).json();
+      const { events, hist } = await (await fetch('/api/events', { signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined })).json();
+      if (hist) { S.hist = hist; if (S.data) renderVerdict(); }
       let added = false;
       for (const e of events || []) {
         const id = 'srv:' + e.tag;
