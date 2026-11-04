@@ -487,7 +487,7 @@
 
   // Sondagem aos eleitores: pedida só quando se abre a corrida
   const votersCache = {};
-  const votersOpen = { who: true, why: true };
+  const votersOpen = { who: window.innerWidth >= 600, why: window.innerWidth >= 600 }; // no telemóvel vem recolhida
   async function loadVoters(r) {
     const el = $('#voters', detailEl);
     if (!el) return;
