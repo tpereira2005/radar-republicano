@@ -5,6 +5,7 @@ import { writeFileSync } from 'node:fs';
 const STATES = {
   FL: 'florida', OH: 'ohio', TX: 'texas', MI: 'michigan', NC: 'north-carolina', ME: 'maine',
   GA: 'georgia', IA: 'iowa', AZ: 'arizona', KS: 'kansas', NH: 'new-hampshire',
+  AK: 'alaska', NE: 'nebraska', SC: 'south-carolina', MN: 'minnesota', MS: 'mississippi',
 };
 const URL24 = (s) => `https://static01.nyt.com/elections-assets/pages/data/2024-11-05/results-${s}-president.json`;
 

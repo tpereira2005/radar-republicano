@@ -3,7 +3,7 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const API = { state: require('../api/state.js'), events: require('../api/events.js'), push: require('../api/push.js'), tick: require('../api/tick.js') };
+const API = { state: require("../api/state.js"), events: require("../api/events.js"), push: require("../api/push.js"), tick: require("../api/tick.js"), voters: require("../api/voters.js") };
 
 const root = path.join(__dirname, '..', 'public');
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json' };

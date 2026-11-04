@@ -351,3 +351,30 @@ table.types { margin-top: 10px; }
 .badge.foxR { border-color: var(--rep2); color: var(--rep2); }
 .badge.foxD { border-color: var(--dem2); color: var(--dem2); }
 .badge.foxI { border-color: var(--ind); color: var(--ind); }
+
+/* ---------------------------------------------------------------- revisão 3 */
+.changes { border-bottom: 1px solid var(--line); }
+.changes p { margin: 8px 14px 0; font-size: 14px; }
+.mvs { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 14px 10px; }
+.mv { font-size: 13px; color: var(--ink); text-decoration: none; background: var(--panel2); border: 1px solid var(--line2); border-radius: 6px; padding: 3px 8px; }
+.voters details { margin-top: 8px; }
+.voters summary { cursor: pointer; font-weight: 600; font-size: 13.5px; padding: 4px 0; }
+table.vt { margin: 8px 0 12px; }
+table.vt caption { text-align: left; font: 600 12.5px var(--sans); color: var(--ink2); padding-bottom: 2px; }
+table.vt th[scope="row"] { font-size: 12.5px; white-space: normal; }
+table.vt td { padding: 4px 6px; }
+.alert-level { margin-left: auto; align-self: center; background: var(--panel2); color: var(--ink2); border: 1px solid var(--line2); border-radius: 6px; font: 12px var(--sans); padding: 3px 6px; }
+.tvbtn { align-self: center; font-size: 12px; padding: 3px 8px; white-space: nowrap; margin-left: 6px; }
+.alert-level[hidden] + .tvbtn { margin-left: auto; }
+body.tv .wrap { max-width: none; padding-left: 28px; padding-right: 28px; }
+body.tv .quick a, body.tv #pulse, body.tv #camara, body.tv #score, body.tv #minuto, body.tv #app > section:has(#governors), body.tv #metodo, body.tv .sec-sub, body.tv #sortSeg, body.tv .vd-close, body.tv .demobar { display: none; }
+body.tv #resumo #verdict { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; }
+body.tv .vd-top, body.tv .vd-path { grid-column: 1 / -1; }
+body.tv .vd-lines { font-size: 22px; }
+body.tv .vd-grid { grid-template-columns: 1fr; gap: 8px; }
+body.tv .vd-p { font-size: 56px; }
+body.tv .latest { font-size: 18px; }
+body.tv .grid { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 8px; }
+body.tv .rc .rc-cands, body.tv .rc .gauge, body.tv .rc .rc-need { display: none; }
+body.tv .rc .rc-m { margin-top: 6px; }
+@media (max-width: 900px) { .tvbtn { display: none; } body.tv #resumo #verdict { display: block; } }

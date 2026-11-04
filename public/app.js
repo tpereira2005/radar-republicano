@@ -50,7 +50,7 @@
     if (!r.total || left < 1 || r.eevp < 1) return null; // com quase nada contado, a conta não diz nada
     return { left, need: ((r.O.votes - r.R.votes) / left) * 100 };
   }
-  const STNAME = { FL: 'Florida', OH: 'Ohio', TX: 'Texas', MI: 'Michigan', NC: 'Carolina do Norte', ME: 'Maine', GA: 'Geórgia', IA: 'Iowa', AZ: 'Arizona', KS: 'Kansas', NH: 'New Hampshire' };
+  const STNAME = { AK: 'Alasca', NE: 'Nebraska', SC: 'Carolina do Sul', MN: 'Minnesota', MS: 'Mississippi', FL: 'Florida', OH: 'Ohio', TX: 'Texas', MI: 'Michigan', NC: 'Carolina do Norte', ME: 'Maine', GA: 'Geórgia', IA: 'Iowa', AZ: 'Arizona', KS: 'Kansas', NH: 'New Hampshire' };
   const RATING = { 'solid-rep': 'R seguro', 'likely-rep': 'R provável', 'lean-rep': 'Inclina R', tossup: 'Renhida', 'lean-dem': 'Inclina D', 'likely-dem': 'D provável', 'solid-dem': 'D seguro' };
   const isSen = (r) => r.office.startsWith('Senado');
 
@@ -214,11 +214,32 @@
   }
 
   // ---------------------------------------------------------------- últimos acontecimentos (logo abaixo do resumo)
+  function changesHtml() {
+    if (!S.data) return '';
+    const cut = Date.now() - 15 * 60000;
+    const at = (list) => { let b = null; for (const p of list || []) { if (Date.parse(p[0]) <= cut) b = p; else break; } return b; };
+    const parts = [];
+    for (const [k, name] of [['S', 'Senado'], ['H', 'Câmara']]) {
+      const b = at(S.hist && S.hist[k]);
+      const g = S.data.control[k] && S.data.control[k].model && S.data.control[k].model.GOP;
+      if (b && g && Math.abs(g.p - b[1]) >= 0.01) parts.push(`${name}: R ${pp(b[1])} → <b class="${g.p >= b[1] ? 'good' : 'bad'}">${pp(g.p)}</b>`);
+    }
+    const movers = [];
+    for (const r of S.data.races) {
+      const b = at(S.rh && S.rh[r.id]);
+      if (b && !r.call && Math.abs(r.radar.proj - b[1]) >= 1) movers.push({ r, b, d: r.radar.proj - b[1] });
+    }
+    movers.sort((a, c) => Math.abs(c.d) - Math.abs(a.d));
+    const mv = movers.slice(0, 5).map(({ r, b, d }) => `<a href="#${r.id}" class="mv"><b>${esc(STNAME[r.st] || r.st)} ${isSen(r) ? 'Sen.' : 'Gov.'}</b> ${fm(b[1], r.O.party)} → ${fm(r.radar.proj, r.O.party)} <span class="${d > 0 ? 'good' : 'bad'}">${d > 0 ? '▲' : '▼'} ${nf1.format(Math.abs(d))}</span></a>`).join('');
+    const n = S.feed.filter((e) => e.t >= cut && e.kind === 'call').length;
+    if (!parts.length && !mv && !n) return '';
+    return `<div class="changes"><div class="lt-head"><b>Últimos 15 minutos</b>${n ? `<span class="muted">${n} projeç${n > 1 ? 'ões' : 'ão'}</span>` : ''}</div>${parts.length ? `<p>${parts.join(' · ')}</p>` : ''}${mv ? `<div class="mvs">${mv}</div>` : ''}</div>`;
+  }
   function renderLatest() {
     const ev = S.feed.slice(0, 3);
-    $('#latest').innerHTML = ev.length
+    $('#latest').innerHTML = changesHtml() + (ev.length
       ? `<div class="lt-head"><b>Ao minuto</b><a href="#minuto">ver tudo (${S.feed.length})</a></div>${ev.map((e) => `<div class="ev ${e.kind === 'call' ? 'call' : ''} ${e.party || ''} ${e.t > S.lastVisit && S.lastVisit && e.t < visitStart ? 'new' : ''}"><time>${tLis.format(new Date(e.t))}</time><div>${e.text}</div></div>`).join('')}`
-      : '';
+      : '');
   }
 
   // ---------------------------------------------------------------- pulso republicano
@@ -444,6 +465,7 @@
         <div>
           ${wt}
           <div class="box"><div class="box-h"><h3>Que votos já entraram (miragem)</h3></div>${mirage}</div>
+          <div class="box voters" id="voters"><div class="box-h"><h3>Quem votou e porquê</h3><span class="muted small">Fox News Voter Poll</span></div><p class="note">A carregar…</p></div>
           <div class="box"><div class="box-h"><h3>Onde estão os votos que faltam</h3></div>${remaining}</div>
         </div>
       </div>
@@ -460,14 +482,46 @@
     placeDetail();
     drawMap(r, byK, names);
     drawSpark(r);
+    loadVoters(r);
+  }
+
+  // Sondagem aos eleitores: pedida só quando se abre a corrida
+  const votersCache = {};
+  const votersOpen = { who: true, why: true };
+  async function loadVoters(r) {
+    const el = $('#voters', detailEl);
+    if (!el) return;
+    const c = votersCache[r.id];
+    if (c && Date.now() - c.at < 180000) { renderVoters(r, el, c.v); return; }
+    if (c) renderVoters(r, el, c.v);
+    let v;
+    try { v = await (await fetch('/api/voters?race=' + encodeURIComponent(r.id), { signal: AbortSignal.timeout ? AbortSignal.timeout(12000) : undefined })).json(); } catch (e) { v = null; }
+    if (v && !v.error) votersCache[r.id] = { v, at: Date.now() };
+    const now = $('#voters', detailEl);
+    if (now && S.sel === r.id) renderVoters(r, now, v);
+  }
+  function renderVoters(r, el, v) {
+    const head = '<div class="box-h"><h3>Quem votou e porquê</h3><span class="muted small">Fox News Voter Poll</span></div>';
+    if (!v || v.error) { el.innerHTML = head + '<p class="note">Não foi possível carregar a sondagem agora.</p>'; return; }
+    if (!v.available) { el.innerHTML = head + '<p class="note">Ainda não publicada para esta corrida. A Fox costuma libertá-la depois de fecharem as urnas do estado.</p>'; return; }
+    const op = r.O.party;
+    const group = (g) => `<table class="vt"><caption>${esc(g.label)}</caption><thead><tr><th></th><th title="Peso no eleitorado">Peso</th><th class="r">R</th><th class="${cls(-1, op)}">${esc(op)}</th><th>Margem</th></tr></thead><tbody>${g.rows.map((x) => {
+      const m = x.R - x.O;
+      return `<tr><th scope="row">${esc(x.a)}</th><td>${x.share}%</td><td class="r">${x.R}</td><td class="${cls(-1, op)}">${x.O}</td><td class="${cls(m, op)}">${fm(m, op)}</td></tr>`;
+    }).join('')}</tbody></table>`;
+    el.innerHTML = `${head}
+      <p class="note">Entrevistas a ${v.interviews ? nf0.format(v.interviews) : '—'} eleitores: <span class="r">${esc(v.R || 'R')}</span> contra <span class="${cls(-1, op)}">${esc(v.O || op)}</span>. Percentagens por grupo. É uma sondagem, com margem de erro maior nos grupos pequenos, e o voto total pode diferir da contagem.</p>
+      <details data-g="who" ${votersOpen.who ? 'open' : ''}><summary>Quem votou</summary>${v.who.map(group).join('')}</details>
+      <details data-g="why" ${votersOpen.why ? 'open' : ''}><summary>O que pesou no voto</summary>${v.why.map(group).join('')}</details>`;
+    el.querySelectorAll('details').forEach((d) => d.addEventListener('toggle', () => { votersOpen[d.dataset.g] = d.open; }));
   }
 
   // avisos de regras especiais da corrida
   function notes(r) {
     const n = [];
     const ro = r.nyt && r.nyt.runoff != null ? ` O modelo do NYT dá ${pp(r.nyt.runoff)} de hipótese de isso acontecer.` : '';
-    if (r.rcv || r.st === 'ME') n.push(`O Maine usa voto por ordem de preferência: se ninguém passar dos 50%, os votos dos últimos classificados são redistribuídos e a contagem dessa fase pode levar dias. A estimativa refere-se à 1.ª contagem.${ro}`);
-    if (r.st === 'GA' || (r.threshold && r.threshold >= 50)) n.push(`Na Geórgia, quem não passar dos 50% vai a uma 2.ª volta, em dezembro. A hipótese do radar refere-se a ficar à frente.${ro}`);
+    if (r.rcv || r.st === 'ME' || r.st === 'AK') n.push(`${r.st === 'AK' ? 'O Alasca' : 'O Maine'} usa voto por ordem de preferência: se ninguém passar dos 50%, os votos dos últimos classificados são redistribuídos e a contagem dessa fase pode levar dias. A estimativa refere-se à 1.ª contagem.${ro}`);
+    if (r.st === 'GA') n.push(`Na Geórgia, quem não passar dos 50% vai a uma 2.ª volta, em dezembro. A hipótese do radar refere-se a ficar à frente.${ro}`);
     if (r.foxCall) n.push(`A <b>Fox News</b> já projetou ${esc(r.foxCall.name || '')} (${r.foxCall.who}) como vencedor. A AP ainda não projetou esta corrida.`);
     if (r.call) n.push(`Projeção da ${esc((r.call.by && r.call.by[0] || 'AP').toUpperCase())}${r.call.at ? ' às ' + tLis.format(new Date(r.call.at)) : ''}: ${esc(r.call.name)} (${r.call.who}).`);
     return n.length ? `<div class="notes">${n.map((x) => `<p>${x}</p>`).join('')}</div>` : '';
@@ -498,6 +552,11 @@
   async function drawMap(r, byK, names) {
     const holder = $('#mapSvg', detailEl);
     if (!holder) return;
+    if (!r.counties.length) {
+      holder.classList.remove('mapsvg');
+      holder.innerHTML = '<p class="note">O Alasca não publica resultados por condado, só por distrito estadual. Aqui segue-se o total do estado.</p>';
+      return;
+    }
     let topo;
     try { topo = await getTopo(); } catch (e) { holder.innerHTML = '<p class="note">Não foi possível carregar o mapa. Volta a abrir a corrida para tentar de novo.</p>'; return; }
     if (!detailEl.contains(holder)) return;
@@ -541,23 +600,27 @@
   function drawSpark(r) {
     const el = $('#spark', detailEl);
     const pts = (r.ts || []).map(([t, T, R, O]) => ({ t: Date.parse(t), m: T ? ((R - O) / T) * 100 : 0, T }));
-    if (pts.length < 2) { el.innerHTML = '<p class="note">A evolução aparece quando houver várias atualizações da contagem.</p>'; return; }
+    const est = ((S.rh && S.rh[r.id]) || []).map(([t, p]) => ({ t: Date.parse(t), m: p }));
+    if (pts.length < 2 && est.length < 2) { el.innerHTML = '<p class="note">A evolução aparece quando houver várias atualizações da contagem.</p>'; return; }
     const W = 560, H = 120, P = 30;
-    const x = d3.scaleTime().domain(d3.extent(pts, (p) => p.t)).range([P, W - 8]);
-    const lim = Math.max(5, d3.max(pts, (p) => Math.abs(p.m)) * 1.1);
+    const every = pts.concat(est);
+    const x = d3.scaleTime().domain(d3.extent(every, (p) => p.t)).range([P, W - 8]);
+    const lim = Math.max(5, d3.max(every, (p) => Math.abs(p.m)) * 1.1);
     const y = d3.scaleLinear().domain([-lim, lim]).range([H - 16, 6]);
     const line = d3.line().x((p) => x(p.t)).y((p) => y(p.m)).curve(d3.curveStepAfter);
-    const last = pts[pts.length - 1];
+    const last = pts[pts.length - 1] || est[est.length - 1];
+    const first = every.reduce((a, p) => (p.t < a.t ? p : a), every[0]);
     el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Evolução da margem: agora ${fm(last.m, r.O.party)}">
       <rect x="${P}" y="6" width="${W - P - 8}" height="${y(0) - 6}" fill="rgba(239,68,68,.06)"/><rect x="${P}" y="${y(0)}" width="${W - P - 8}" height="${H - 16 - y(0)}" fill="rgba(59,130,246,.06)"/>
       <line x1="${P}" x2="${W - 8}" y1="${y(0)}" y2="${y(0)}" stroke="#8593a5" stroke-dasharray="3 3"/>
-      <path d="${line(pts)}" fill="none" stroke="#e0b341" stroke-width="2"/>
+      ${pts.length ? `<path d="${line(pts)}" fill="none" stroke="#e0b341" stroke-width="2"/>` : ''}
+      ${est.length > 1 ? `<path d="${line(est)}" fill="none" stroke="#e8edf3" stroke-width="1.5" stroke-dasharray="4 3"/>` : ''}
       <circle cx="${x(last.t)}" cy="${y(last.m)}" r="4" fill="${last.m >= 0 ? '#ef4444' : '#3b82f6'}"/>
       <text x="2" y="14" font-size="11" fill="#8593a5" font-family="IBM Plex Mono">R+${Math.round(lim)}</text>
       <text x="2" y="${H - 18}" font-size="11" fill="#8593a5" font-family="IBM Plex Mono">${r.O.party}+${Math.round(lim)}</text>
-      <text x="${P}" y="${H - 2}" font-size="11" fill="#8593a5" font-family="IBM Plex Mono">${tLis.format(new Date(pts[0].t))}</text>
+      <text x="${P}" y="${H - 2}" font-size="11" fill="#8593a5" font-family="IBM Plex Mono">${tLis.format(new Date(first.t))}</text>
       <text x="${W - 8}" y="${H - 2}" font-size="11" fill="#8593a5" text-anchor="end" font-family="IBM Plex Mono">${tLis.format(new Date(last.t))}</text>
-    </svg>`;
+    </svg><div class="legend"><span class="lg"><i style="background:#e0b341"></i>margem contada</span>${est.length > 1 ? '<span class="lg"><i style="background:#e8edf3"></i>estimativa final (tracejado)</span>' : ''}</div>`;
   }
 
   // ---------------------------------------------------------------- Câmara: distritos a seguir
@@ -577,7 +640,14 @@
     const score = (x) => (x.call ? 2 : 0) + (x.pR != null ? Math.abs(x.pR - 0.5) : 0.5);
     const rows = h.w.slice().sort((a, b) => score(a) - score(b) || (a.id > b.id ? 1 : -1));
     const incTxt = (x) => (x.inc === 'R' ? '<span class="r">R</span>' : x.inc ? `<span class="d">${x.inc}</span>` : '<span class="muted">aberto</span>');
-    $('#house').innerHTML = `
+    const open = (S.data.house && S.data.house.open) || [];
+    const H = S.data.control.H;
+    const haveH = H ? H.R : 0;
+    const favH = open.filter((x) => x[1] >= 0.5).length;
+    const watchIds = new Set(h.w.map((x) => x.id));
+    const tight = open.filter((x) => x[1] > 0.15 && x[1] < 0.85).sort((a, b) => b[1] - a[1]);
+    const path218 = open.length ? `<div class="vd-path"><div class="vd-k">Caminho para os 218 · a AP deu <b class="num">${haveH}</b> lugares ao R · se cada partido ganhar onde é favorito no modelo do NYT, o R fica com <b class="num ${haveH + favH >= 218 ? 'good' : 'bad'}">${haveH + favH}</b> · <b class="num">${tight.length}</b> distritos em aberto</div><div class="chips">${tight.map(([id, p, e]) => `<span class="chip" style="--p:${p}" title="Hipótese R no modelo do NYT">${esc(id)}${watchIds.has(id) ? '★' : ''} <b class="num">${pp(p)}</b>${e ? `<i class="num">${e}%</i>` : ''}</span>`).join('')}</div></div>` : '';
+    $('#house').innerHTML = `${path218}
       <div class="hs">
         <div class="kpi"><div class="k">R favorito (NYT)</div>${h.w.some((x) => x.pR != null && !x.call) ? `<div class="v num ${h.fav >= h.w.length / 2 ? 'good' : 'bad'}">${h.fav}<span class="of">/${h.w.length}</span></div><div class="s">distritos com hipótese R de pelo menos 50%</div>` : '<div class="v num">—</div><div class="s">Sem o modelo do NYT neste momento</div>'}</div>
         <div class="kpi"><div class="k">R à frente agora</div><div class="v num">${h.counted ? `${h.ahead}<span class="of">/${h.counted}</span>` : '—'}</div><div class="s">${h.counted ? 'por decidir, com pelo menos 10% contado. Cuidado com a miragem.' : 'Ainda sem votos nestes distritos'}</div></div>
@@ -593,6 +663,22 @@
         <td>${x.call ? `<span class="badge call${x.call}">${x.call}${x.gained ? ' ganha' : ''}</span>` : x.foxCall ? `<span class="badge fox fox${x.foxCall.who}" title="Projeção da Fox News. A AP ainda não projetou.">Fox: ${x.foxCall.who}</span>` : ''}</td></tr>`).join('')}
       </tbody></table></div>
       <p class="note">* titular. "Aberto": lugar sem titular a concorrer. O CO-03 substitui o MT-01, como o autor da lista corrigiu. No Alasca o voto é por ordem de preferência (VP).</p>`;
+  }
+
+  // Balanço: nas corridas quase todas contadas, o que dizia a estimativa quando só havia parte dos votos
+  function renderBalance() {
+    const el = $('#balanco');
+    if (!el || !S.data) return;
+    const near = (list, f) => (list || []).find((p) => p[3] >= f);
+    const rows = S.data.races.filter((r) => r.eevp >= 95 && r.m != null).map((r) => {
+      const h = S.rh && S.rh[r.id];
+      return { r, a: near(h, 25), b: near(h, 50) };
+    }).filter((x) => x.a || x.b);
+    if (!rows.length) { el.innerHTML = ''; return; }
+    const errs = rows.flatMap((x) => [x.a, x.b].filter(Boolean).map((p) => Math.abs(p[1] - x.r.m)));
+    const hit = rows.filter((x) => { const p = x.a || x.b; return Math.sign(p[1]) === Math.sign(x.r.m); }).length;
+    el.innerHTML = `<h3>Balanço: a estimativa acertou?</h3><p class="note">Nas ${rows.length} corridas com pelo menos 95% contado: erro médio de ${nf1.format(errs.reduce((a, b) => a + b, 0) / errs.length)} pontos e vencedor certo em ${hit} de ${rows.length}, logo na primeira leitura.</p>
+      <div class="tbl-wrap"><table class="ov"><thead><tr><th>Corrida</th><th>Com 25% contado</th><th>Com 50% contado</th><th>Margem agora</th></tr></thead><tbody>${rows.map(({ r, a, b }) => `<tr><th scope="row">${esc(STNAME[r.st] || r.st)} ${isSen(r) ? 'Sen.' : 'Gov.'}</th><td class="${a ? cls(a[1], r.O.party) : ''}">${a ? fm(a[1], r.O.party) : '—'}</td><td class="${b ? cls(b[1], r.O.party) : ''}">${b ? fm(b[1], r.O.party) : '—'}</td><td class="${cls(r.m, r.O.party)}">${fm(r.m, r.O.party)}</td></tr>`).join('')}</tbody></table></div>`;
   }
 
   // ---------------------------------------------------------------- lugares projetados (placar)
@@ -739,8 +825,9 @@
   async function loadServerEvents() {
     if (DEMO) return;
     try {
-      const { events, hist } = await (await fetch('/api/events', { signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined })).json();
-      if (hist) { S.hist = hist; if (S.data) renderVerdict(); }
+      const { events, hist, rh } = await (await fetch('/api/events', { signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined })).json();
+      if (rh) S.rh = rh;
+      if (hist) { S.hist = hist; if (S.data) { renderVerdict(); renderLatest(); renderBalance(); } }
       let added = false;
       for (const e of events || []) {
         const id = 'srv:' + e.tag;
@@ -867,15 +954,40 @@
     renderTables();
     renderDetail();
     renderLatest();
+    renderBalance();
   }
 
   // ---------------------------------------------------------------- alertas: push (com o site fechado) ou avisos do browser
   const b64 = (s) => { const p = '='.repeat((4 - (s.length % 4)) % 4); const r = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(r, (c) => c.charCodeAt(0)); };
   const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('tempo esgotado')), ms))]);
   let vapidKey = null, swReg = null;
+  const alertLevel = () => store.get('radar-alert-level') || 'tudo';
   async function postSub(sub, method) {
-    const r = await fetch('/api/push', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subscription: sub }) });
+    const r = await fetch('/api/push', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subscription: sub, level: alertLevel() }) });
     if (!r.ok) throw new Error('HTTP ' + r.status);
+  }
+  function setupTv() {
+    const b = document.createElement('button');
+    b.className = 'btn tvbtn';
+    b.type = 'button';
+    const set = (on) => {
+      document.body.classList.toggle('tv', on);
+      b.textContent = on ? 'Sair do ecrã grande' : '⛶ Ecrã grande';
+      store.set('radar-tv', on ? '1' : '');
+      if (S.data && S.sel) select(null);
+      if (S.data) { placeDetail(); }
+    };
+    b.onclick = () => {
+      const on = !document.body.classList.contains('tv');
+      set(on);
+      try {
+        if (on && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
+        if (!on && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      } catch (e) { /* sem ecrã inteiro */ }
+      scrollTo(0, 0);
+    };
+    $('.quick .wrap').appendChild(b);
+    if (params.get('tv') === '1') set(true); else b.textContent = '⛶ Ecrã grande';
   }
   function setupNotify() {
     if (!('Notification' in window)) return;
@@ -887,7 +999,26 @@
       b.textContent = S.push ? '🔔 Alertas ligados' : S.notify ? '🔔 Alertas (site aberto)' : '🔕 Ativar alertas';
       b.title = S.push ? 'Recebes as projeções da AP e as viragens mesmo com o site fechado. Toca para desligar.' : 'Avisos das projeções da AP e das viragens das corridas-chave';
       b.setAttribute('aria-pressed', String(S.notify));
+      sel.hidden = !S.push;
     };
+    // que alertas receber
+    const sel = document.createElement('select');
+    sel.className = 'alert-level';
+    sel.setAttribute('aria-label', 'Que alertas receber');
+    sel.title = 'Que alertas receber. O aviso repetido da AP, quando a Fox já tinha projetado, nunca é enviado.';
+    sel.innerHTML = '<option value="tudo">Alertas: tudo</option><option value="principais">Alertas: Senado e governos</option><option value="senado">Alertas: só Senado</option>';
+    sel.value = alertLevel();
+    sel.hidden = true;
+    sel.onchange = async () => {
+      store.set('radar-alert-level', sel.value);
+      try {
+        const reg = swReg || await withTimeout(navigator.serviceWorker.ready, 5000);
+        const s = await reg.pushManager.getSubscription();
+        if (s) await postSub(s, 'POST');
+        toast({ id: 'lvl', text: '<b>Preferência guardada.</b> Pode demorar até 5 minutos a aplicar-se.', kind: 'info' });
+      } catch (e) { toast({ id: 'lvlx', text: 'Não foi possível guardar a preferência. Tenta de novo.', kind: 'info' }); }
+    };
+    $('.quick .wrap').appendChild(sel);
     const off = store.get('radar-alerts') === 'off';
     S.notify = Notification.permission === 'granted' && !off;
     upd();
@@ -940,6 +1071,7 @@
   renderFeed();
   renderDemoBar();
   setupNotify();
+  setupTv();
   // ligações para corridas e secções (ex.: #camara, vindas das notificações) só funcionam depois de haver conteúdo
   function followLink() {
     onHash();

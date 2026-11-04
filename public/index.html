@@ -22,7 +22,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=IBM+Plex+Mono:wght@400;500;600&family=Public+Sans:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="app.css?v=1793755061">
+<link rel="stylesheet" href="app.css?v=1793755582">
 </head>
 <body>
 <a class="skip" href="#corridas">Saltar para as corridas</a>
@@ -53,7 +53,7 @@
         <button data-sort="office">Senado primeiro</button>
       </div>
     </div>
-    <p class="sec-sub">Senado e governadores nos 11 estados da lista de condados-chave. Cada cartão compara o voto contado com Trump 2024, condado a condado, e estima onde a corrida vai acabar. Toca num cartão para ver o mapa e os condados.</p>
+    <p class="sec-sub">Senado e governadores nos 11 estados da lista de condados-chave, mais o Senado no Alasca, Nebraska, Carolina do Sul, Minnesota e Mississippi. Cada cartão compara o voto contado com Trump 2024, condado a condado, e estima onde a corrida vai acabar. Toca num cartão para ver o mapa e os condados.</p>
     <div class="grid" id="grid"></div>
   </section>
   <section id="camara" aria-labelledby="hCamara">
@@ -84,7 +84,8 @@
       <div><h3>Duas estimativas</h3><p>A <b>principal</b> é o modelo ao vivo do NYT, que conta com o que falta por tipo de voto. Nos governadores, para os quais o NYT não tem modelo, parte do modelo dele para o Senado no mesmo estado e soma a diferença entre as duas corridas nos condados contados. A <b>nossa</b>, ao lado, compara cada condado com Trump 2024, ignora os condados com um só tipo de voto contado e estende essa variação ao que falta. <b>Nenhuma é uma projeção:</b> as projeções são da AP e, com o rótulo "Fox", da Fox News, que costuma avançar antes. Os lugares contam só com as da AP.</p></div>
       <div><h3>Miragem</h3><p>A ordem da contagem não é aleatória. Em muitos estados o voto por correio e antecipado, que favorece os democratas, é contado primeiro, e o do próprio dia vem depois (ou o contrário). Por isso uma margem a meio da contagem pode enganar. O medidor "Que votos já entraram" mostra o tipo de voto já contado e a margem em cada um. Os condados onde só entrou um tipo aparecem a cinzento no mapa e ficam fora das contas dos alvos.</p></div>
     </div>
-    <p class="fine">Dados: ficheiros públicos de resultados do New York Times, com contagens e projeções da Associated Press. Se o NYT falhar, o site muda sozinho para os feeds públicos da Fox News e avisa no topo; nesse caso as projeções são da Fox e a estimativa é só a nossa. Referências de 2024: NYT. Condados-chave e históricos: lista de @earlyvotedata no X (3/11/2026). Site não oficial, sem ligação ao NYT, à AP ou a qualquer partido. Código aberto em github.com/tpereira2005/radar-republicano.</p>
+    <div id="balanco"></div>
+    <p class="fine">Dados: ficheiros públicos de resultados do New York Times, com contagens e projeções da Associated Press. Se o NYT falhar, o site muda sozinho para os feeds públicos da Fox News e avisa no topo; nesse caso as projeções são da Fox e a estimativa é só a nossa. A sondagem "Quem votou e porquê" é a Fox News Voter Poll. Referências de 2024: NYT. Condados-chave e históricos: lista de @earlyvotedata no X (3/11/2026). Site não oficial, sem ligação ao NYT, à AP ou a qualquer partido. Código aberto em github.com/tpereira2005/radar-republicano.</p>
   </section>
 </main>
 <div class="tip" id="tip" role="tooltip" hidden></div>
@@ -92,6 +93,6 @@
 <div class="sr-only" id="sr" aria-live="polite"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
-<script src="app.js?v=1793755061"></script>
+<script src="app.js?v=1793755582"></script>
 </body>
 </html>

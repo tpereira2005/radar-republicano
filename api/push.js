@@ -26,7 +26,7 @@ module.exports = async (req, res) => {
     if (!okHost || (req.method === 'POST' && !okKeys)) {
       res.statusCode = 400; return res.end('{"error":"subscrição inválida"}');
     }
-    if (req.method === 'POST') await addSub({ endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth } });
+    if (req.method === 'POST') await addSub({ endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth }, level: ['senado', 'principais', 'tudo'].includes(body.level) ? body.level : 'tudo' });
     else if (req.method === 'DELETE') await removeSub(sub.endpoint);
     else { res.statusCode = 405; return res.end('{}'); }
     res.end('{"ok":true}');

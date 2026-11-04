@@ -8,6 +8,9 @@ on:
     - cron: '50 22 3 11 *'
     - cron: '40 4 4 11 *'
     - cron: '30 10 4 11 *'
+    # dias seguintes: corridas lentas (Arizona, Alasca, Maine)
+    - cron: '20 16,22 4-9 11 *'
+    - cron: '20 4,10 5-10 11 *'
 concurrency:
   group: noite
   cancel-in-progress: false
@@ -24,5 +27,6 @@ jobs:
           while [ "$(date +%s)" -lt "$end" ]; do
             out=$(curl -s --max-time 25 "$TICK_URL" || echo '{"erro":"curl"}')
             echo "$(date -u +%H:%M:%S) ${out:0:400}"
-            sleep 30
+            # depois da noite eleitoral (a partir das 12:00 de 4/11) basta de 2 em 2 minutos
+            if [ "$(date -u +%Y%m%d%H)" -ge 2026110412 ]; then sleep 120; else sleep 30; fi
           done
