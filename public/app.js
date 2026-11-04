@@ -58,7 +58,7 @@
   let reqSeq = 0;
   async function load() {
     const seq = ++reqSeq;
-    const url = '/api/state' + (DEMO ? '?demo=' + S.demoT.toFixed(3) : '');
+    const url = '/api/state' + (DEMO ? '?demo=' + S.demoT.toFixed(3) : params.get('source') === 'fox' ? '?source=fox' : '');
     let data;
     try {
       const res = await fetch(url, { cache: 'no-cache', signal: AbortSignal.timeout ? AbortSignal.timeout(12000) : undefined });
@@ -75,6 +75,7 @@
       detect(S.prev, data);
       render();
       S.renderErr = null;
+      if (!S.linked) { S.linked = true; followLink(); }
     } catch (e) {
       S.renderErr = e.message;
       console.error(e);
@@ -99,6 +100,7 @@
     const srcTxt = src ? ` · NYT ${tLis.format(new Date(src))}` : '';
     if (S.err) el.innerHTML = `<span class="dot warn"></span><span class="txt">Sem ligação · dados das ${tLis.format(new Date(S.at))}</span>`;
     else if (S.renderErr) el.innerHTML = `<span class="dot warn"></span><span class="txt" title="${esc(S.renderErr)}">Erro interno da página · recarrega</span>`;
+    else if (S.data.sources && (S.data.sources.races !== 'nyt' || S.data.sources.senate === 'fox' || S.data.sources.house === 'fox')) el.innerHTML = `<span class="dot warn"></span><span class="txt" title="O NYT falhou; os dados vêm da Fox News, sem o modelo do NYT">Fonte de recurso: Fox · há ${ago < 60 ? ago + ' s' : Math.round(ago / 60) + ' min'}</span>`;
     else if (S.data.errors && S.data.errors.length) el.innerHTML = `<span class="dot warn"></span><span class="txt" title="${esc(S.data.errors.join(' · '))}">Uma fonte falhou · a mostrar os últimos dados bons</span>`;
     else el.innerHTML = `<span class="dot on"></span><span class="txt">${DEMO ? 'Ensaio' : 'Ao vivo'} · há ${ago < 60 ? ago + ' s' : Math.round(ago / 60) + ' min'}${srcTxt}</span>`;
   }
@@ -144,7 +146,7 @@
   function renderVerdict() {
     const d = S.data, c = d.control;
     const open = d.senate.filter((x) => !x.call);
-    const fav = open.filter((x) => x.pR != null && x.pR >= 0.5).length;
+    const fav = open.filter((x) => (x.pR != null ? x.pR >= 0.5 : x.eevp > 0 ? x.m > 0 : /rep/.test(x.rating || ''))).length;
     const have = c.S ? c.S.R : 0;
     const proj = have + fav;
     const pS = c.S && c.S.model && c.S.model.GOP ? c.S.model.GOP.p : null;
@@ -155,14 +157,15 @@
     const kc = keyCounties();
     const sWon = c.S && c.S.winner;
     // tom da noite: modelo do NYT para o Senado; com votos contados, se o caminho para os 50 disser o contrário, fica "equilibrada"
-    let lvl = pS == null ? null : pS >= 0.6 ? 2 : pS > 0.4 ? 1 : 0;
+    // sem modelo do NYT (fonte de recurso), o tom vem só do caminho para os 50
+    let lvl = pS == null ? (counting ? (proj >= 50 ? 1 : 0) : null) : pS >= 0.6 ? 2 : pS > 0.4 ? 1 : 0;
     if (counting && lvl != null && ((proj >= 50 && lvl === 0) || (proj < 50 && lvl === 2))) lvl = 1;
     const tone = sWon ? (sWon === 'GOP' ? 'good' : 'bad') : lvl == null ? '' : ['bad', 'mid', 'good'][lvl];
     const toneTxt = sWon ? (sWon === 'GOP' ? 'Os republicanos garantiram o Senado' : 'Os democratas garantiram o Senado') : lvl == null ? '' : ['Noite difícil para os republicanos', 'Noite equilibrada', 'Noite boa para os republicanos'][lvl];
     const lines = [
       `<li><b>Senado:</b> ${sWon ? toneTxt + '.' : `se cada partido ganhar onde é favorito agora, o R fica com <b class="num ${proj >= 50 ? 'good' : 'bad'}">${proj}</b> lugares (precisa de 50).`}${!sWon && decisive.length ? ` Decidem-se em ${decisive.map((x) => { const t = d.races.find((r) => r.st === x.st && isSen(r)); return t ? `<a href="#${t.id}" class="st">${esc(x.st)}</a>` : `<b>${esc(x.st)}</b>`; }).join(', ')}.` : ''}</li>`,
       `<li><b>Condados-chave:</b> ${kc.n ? `<b class="num ${kc.up / kc.n >= 0.5 ? 'good' : 'bad'}">${kc.up} de ${kc.n}</b> com o R acima do alvo de empate${kc.up / kc.n >= 0.5 ? ', o que chega para ganhar os estados' : ', abaixo do que precisa'}.` : 'ainda sem votos comparáveis (10% contado e os dois tipos de voto).'}</li>`,
-      `<li><b>Câmara:</b> ${c.H && c.H.winner ? (c.H.winner === 'GOP' ? 'os republicanos garantiram a maioria.' : 'os democratas garantiram a maioria.') : `hipótese republicana de <b class="num ${pcls(pH)}">${pp(pH)}</b> no modelo do NYT.`}${(() => { const h = houseStats(); return h.w.length ? ` Nos <a href="#camara">${h.w.length} distritos a seguir</a>, o R é favorito em <b class="num ${h.fav >= h.w.length / 2 ? 'good' : 'bad'}">${h.fav}</b>${h.callR + h.callD ? ` e a AP já lhe deu <b class="num">${h.callR}</b>` : ''}.` : ''; })()}</li>`,
+      `<li><b>Câmara:</b> ${c.H && c.H.winner ? (c.H.winner === 'GOP' ? 'os republicanos garantiram a maioria.' : 'os democratas garantiram a maioria.') : `${pH == null ? `a AP/Fox já deu <b class="num">${c.H ? c.H.R : 0}</b> lugares ao R e <b class="num">${c.H ? c.H.D : 0}</b> ao D (precisa de 218).` : `hipótese republicana de <b class="num ${pcls(pH)}">${pp(pH)}</b> no modelo do NYT.`}`}${(() => { const h = houseStats(); return h.w.some((x) => x.pR != null && !x.call) ? ` Nos <a href="#camara">${h.w.length} distritos a seguir</a>, o R é favorito em <b class="num ${h.fav >= h.w.length / 2 ? 'good' : 'bad'}">${h.fav}</b>${h.callR + h.callD ? ` e a AP já lhe deu <b class="num">${h.callR}</b>` : ''}.` : ''; })()}</li>`,
     ];
     // fecho das urnas nos 11 estados, com o estado de cada um
     const now = Date.now();
@@ -186,12 +189,21 @@
       <div class="vd-top"><span class="tone ${tone}">${toneTxt || 'A carregar'}</span>${!counting ? '<span class="muted">Ainda não há votos contados: os números abaixo são as expectativas antes da contagem.</span>' : ''}</div>
       <ul class="vd-lines">${lines.join('')}</ul>
       <div class="vd-grid">${chamberVerdict('Senado', c.S, '50 (Vance desempata)')}${chamberVerdict('Câmara', c.H, '218')}</div>
-      <div class="vd-path"><div class="vd-k">Caminho para os 50 no Senado · R tem <b class="num">${have}</b> lugares garantidos · corridas por decidir pela hipótese republicana (NYT)</div><div class="chips">${pathChips()}</div></div>
+      <div class="vd-path"><div class="vd-k">Caminho para os 50 no Senado · R tem <b class="num">${have}</b> lugares garantidos · corridas por decidir ${d.senate.some((x) => !x.call && x.pR != null) ? 'pela hipótese republicana (NYT)' : 'pela margem atual'}</div><div class="chips">${pathChips()}</div></div>
       <div class="vd-close"><span class="vd-k">Fecho da maioria das urnas (Lisboa)</span>${strip}${countdown}<span class="legend-s"><i class="s-live">a contar</i> <i class="s-done">projetado</i></span></div>`;
   }
   function pathChips() {
     const d = S.data;
     const open = d.senate.filter((x) => !x.call).slice().sort((a, b) => (b.pR == null ? -1 : b.pR) - (a.pR == null ? -1 : a.pR));
+    if (!open.some((x) => x.pR != null)) {
+      const list = open.filter((x) => x.eevp > 0 || !/solid/.test(x.rating || ''));
+      return list.map((x) => {
+        const r = d.races.find((y) => y.st === x.st && isSen(y));
+        const p = x.eevp > 0 ? (x.m > 0 ? 0.75 : 0.25) : /rep/.test(x.rating || '') ? 0.65 : /dem/.test(x.rating || '') ? 0.35 : 0.5;
+        const inner = `${esc(x.st)}${r ? '★' : ''} <b class="num">${x.eevp > 0 ? fm(x.m, x.Op) : esc(RATING[x.rating] || '—')}</b>${x.eevp ? `<i class="num">${Math.round(x.eevp)}% contado</i>` : ''}`;
+        return r ? `<a class="chip" href="#${r.id}" style="--p:${p}">${inner}</a>` : `<span class="chip" style="--p:${p}">${inner}</span>`;
+      }).join('') || '<span class="muted">Sem corridas por decidir</span>';
+    }
     const chips = open.filter((x) => x.pR != null && x.pR > 0.02 && x.pR < 0.98).map((x) => {
       const r = d.races.find((y) => y.st === x.st && isSen(y));
       const inner = `${esc(x.st)}${r ? '★' : ''} <b class="num">${pp(x.pR)}</b>${x.eevp ? `<i class="num">${Math.round(x.eevp)}% contado</i>` : ''}`;
@@ -474,7 +486,7 @@
         ${row(26, p - 1.28 * sd, p, p + 1.28 * sd, p >= 0 ? '#ef4444' : '#3b82f6', 'Radar')}
         ${q ? `<line x1="${X(q[0])}" x2="${X(q[4])}" y1="56" y2="56" stroke="#a7b3c2" stroke-width="1.5"/>${row(56, q[1], q[2], q[3], q[2] >= 0 ? '#ef4444' : '#3b82f6', qName)}` : ''}
       </svg>
-      <p class="note">Radar (condado a condado, face a Trump 2024): <b class="${cls(p, r.O.party)}">${fm(p, r.O.party)}</b>, o R ganha em ${pp(r.own.pR)} dos cenários.${r.nyt && r.nyt.q ? ` Modelo do NYT, que é a estimativa principal porque conta com o que falta por tipo de voto: <b class="${cls(q[2], r.O.party)}">${fm(q[2], r.O.party)}</b>, o R ganha em ${pp(r.nyt.pR)}${r.nyt.status === 'inactive' ? ' (ainda à espera de resultados)' : ''}.` : r.radar.src === 'nyt-senado' ? ` O NYT não tem modelo para esta corrida; a estimativa principal parte do modelo dele para o Senado no mesmo estado e soma a diferença entre as duas corridas nos condados contados: <b class="${cls(q[2], r.O.party)}">${fm(q[2], r.O.party)}</b>, o R ganha em ${pp(r.radar.pR)}.` : ' O NYT não publica modelo ao vivo para esta corrida.'}</p></div>`;
+      <p class="note">Radar (condado a condado, face a Trump 2024): <b class="${cls(p, r.O.party)}">${fm(p, r.O.party)}</b>, o R ganha em ${pp(r.own.pR)} dos cenários.${r.nyt && r.nyt.q ? ` Modelo do NYT, que é a estimativa principal porque conta com o que falta por tipo de voto: <b class="${cls(q[2], r.O.party)}">${fm(q[2], r.O.party)}</b>, o R ganha em ${pp(r.nyt.pR)}${r.nyt.status === 'inactive' ? ' (ainda à espera de resultados)' : ''}.` : r.radar.src === 'nyt-senado' ? ` O NYT não tem modelo para esta corrida; a estimativa principal parte do modelo dele para o Senado no mesmo estado e soma a diferença entre as duas corridas nos condados contados: <b class="${cls(q[2], r.O.party)}">${fm(q[2], r.O.party)}</b>, o R ganha em ${pp(r.radar.pR)}.` : (S.data.sources && S.data.sources.fox && S.data.sources.fox.includes(r.id) ? ' O NYT está indisponível, por isso esta é agora a única estimativa.' : ' O NYT não publica modelo ao vivo para esta corrida.')}</p></div>`;
   }
 
   let countyNames = {};
@@ -565,7 +577,7 @@
     const incTxt = (x) => (x.inc === 'R' ? '<span class="r">R</span>' : x.inc ? `<span class="d">${x.inc}</span>` : '<span class="muted">aberto</span>');
     $('#house').innerHTML = `
       <div class="hs">
-        <div class="kpi"><div class="k">R favorito (NYT)</div><div class="v num ${h.fav >= h.w.length / 2 ? 'good' : 'bad'}">${h.fav}<span class="of">/${h.w.length}</span></div><div class="s">distritos com hipótese R de pelo menos 50%</div></div>
+        <div class="kpi"><div class="k">R favorito (NYT)</div>${h.w.some((x) => x.pR != null && !x.call) ? `<div class="v num ${h.fav >= h.w.length / 2 ? 'good' : 'bad'}">${h.fav}<span class="of">/${h.w.length}</span></div><div class="s">distritos com hipótese R de pelo menos 50%</div>` : '<div class="v num">—</div><div class="s">Sem o modelo do NYT neste momento</div>'}</div>
         <div class="kpi"><div class="k">R à frente agora</div><div class="v num">${h.counted ? `${h.ahead}<span class="of">/${h.counted}</span>` : '—'}</div><div class="s">${h.counted ? 'por decidir, com pelo menos 10% contado. Cuidado com a miragem.' : 'Ainda sem votos nestes distritos'}</div></div>
         <div class="kpi"><div class="k">Projeções da AP</div><div class="v num">${h.callR + h.callD ? `<span class="r">${h.callR}</span><span class="of"> R · </span><span class="d">${h.callD}</span><span class="of"> D</span>` : '—'}</div><div class="s">${h.gainR + h.gainD ? `Mudam de partido: <b class="r">R +${h.gainR}</b> · <b class="d">D +${h.gainD}</b>` : 'nestes 39 distritos'}</div></div>
       </div>
@@ -672,7 +684,7 @@
       if (r.call) addEvent('srv:call-' + off + ':' + r.st, `<b>${esc((r.call.by && r.call.by[0] || 'AP').toUpperCase())} projeta:</b> ${esc(r.call.name)} (${r.call.who}) vence em ${esc(label(r))}.`, 'call', r.call.who, !first, r.call.at ? Date.parse(r.call.at) : null);
       if (p && p.total === 0 && r.total > 0) addEvent('start:' + r.id, `Primeiros votos em ${esc(label(r))}: ${fm(r.m, r.O.party)}.`, 'info', null, false);
       // viragem da estimativa, com folga (como no servidor): só quando a hipótese passa 65% ou desce de 35%
-      if (p && !r.call && r.radar.F >= 25 && r.radar.pR != null && p.radar.pR != null) {
+      if (p && !r.call && r.radar.src === p.radar.src && r.radar.F >= 25 && r.radar.pR != null && p.radar.pR != null) {
         const was = p.radar.pR >= 0.5 ? 'R' : r.O.party, now = r.radar.pR >= 0.65 ? 'R' : r.radar.pR <= 0.35 ? r.O.party : null;
         if (now && now !== was) addEvent('srv:lead-' + r.id + '-' + now + ':' + Math.floor(Date.now() / 6e5), `A estimativa em ${esc(label(r))} passa para <b>${now}</b> (${fm(r.radar.proj, r.O.party)}, ${pct(r.radar.F)} contado).`, 'flip', now === 'R' ? 'R' : 'D', true);
       }
@@ -691,10 +703,10 @@
     for (const [off, x] of others) {
       if (x.runoff) addEvent('srv:runoff-' + off + ':' + x.st, `<b>${esc(x.st)}:</b> vai haver 2.ª volta (${off === 'S' ? 'Senado' : 'governador'}).`, 'call', null, !first);
       if (!x.call || cur.races.some((r) => r.st === x.st && (isSen(r) ? 'S' : 'G') === off)) continue;
-      addEvent('srv:call-' + off + ':' + x.st, `<b>AP projeta:</b> ${x.call === 'R' ? esc(x.R) : esc(x.O)} (${x.call}) vence ${off === 'S' ? 'o Senado' : 'o governo'} em ${esc(x.st)}.`, 'call', x.call, false);
+      addEvent('srv:call-' + off + ':' + x.st, `<b>${cur.sources && cur.sources[off === 'S' ? 'senate' : 'governors'] === 'fox' ? 'Fox' : 'AP'} projeta:</b> ${x.call === 'R' ? esc(x.R) : esc(x.O)} (${x.call}) vence ${off === 'S' ? 'o Senado' : 'o governo'} em ${esc(x.st)}.`, 'call', x.call, false);
     }
     for (const x of (cur.house && cur.house.watch) || []) {
-      if (x.call) addEvent('srv:call-H:' + x.id, `<b>AP projeta:</b> ${x.call === 'R' ? esc(x.R) : esc(x.O)} (${x.call}) vence ${esc(x.id)}${x.gained ? (x.call === 'R' ? ' e conquista o lugar' : ' e tira o lugar ao R') : ''} (Câmara, ${esc(x.zone)}).`, 'call', x.call, !first && x.gained);
+      if (x.call) addEvent('srv:call-H:' + x.id, `<b>${cur.sources && cur.sources.house === 'fox' ? 'Fox' : 'AP'} projeta:</b> ${x.call === 'R' ? esc(x.R) : esc(x.O)} (${x.call}) vence ${esc(x.id)}${x.gained ? (x.call === 'R' ? ' e conquista o lugar' : ' e tira o lugar ao R') : ''} (Câmara, ${esc(x.zone)}).`, 'call', x.call, !first && x.gained);
     }
     for (const k of ['S', 'H']) {
       const c = cur.control[k];
@@ -918,9 +930,9 @@
   renderFeed();
   renderDemoBar();
   setupNotify();
-  load().then(() => {
+  // ligações para corridas e secções (ex.: #camara, vindas das notificações) só funcionam depois de haver conteúdo
+  function followLink() {
     onHash();
-    // ligações para secções (ex.: #camara, vindas das notificações) só funcionam depois de haver conteúdo
     const h = hashId();
     const sec = S.sel ? $(`.rc[data-id="${S.sel}"]`) : h && document.getElementById(h);
     if (sec) {
@@ -930,8 +942,8 @@
       if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => setTimeout(go, 50));
       setTimeout(go, 900);
     }
-    schedule();
-  });
+  }
+  load().then(schedule);
   loadServerEvents();
   setInterval(loadServerEvents, 120000);
 })();

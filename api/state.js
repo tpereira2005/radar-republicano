@@ -8,7 +8,7 @@ module.exports = async (req, res) => {
   const demoParam = url.searchParams.get('demo');
   const demo = demoParam != null ? Number(demoParam) : null;
   try {
-    const body = await collect({ demo });
+    const body = await collect({ demo, source: url.searchParams.get('source') });
     res.statusCode = 200;
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=8, stale-while-revalidate=30');
